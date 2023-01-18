@@ -1,0 +1,202 @@
+
+shiftTest.elf:     file format elf32-avr
+
+Sections:
+Idx Name          Size      VMA       LMA       File off  Algn
+  0 .text         000000d0  00000000  00000000  00000074  2**1
+                  CONTENTS, ALLOC, LOAD, READONLY, CODE
+  1 .data         00000000  00800060  000000d0  00000144  2**0
+                  CONTENTS, ALLOC, LOAD, DATA
+  2 .stab         00000684  00000000  00000000  00000144  2**2
+                  CONTENTS, READONLY, DEBUGGING
+  3 .stabstr      00000d8c  00000000  00000000  000007c8  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  4 .comment      00000011  00000000  00000000  00001554  2**0
+                  CONTENTS, READONLY
+  5 .note.gnu.avr.deviceinfo 0000003c  00000000  00000000  00001568  2**2
+                  CONTENTS, READONLY
+  6 .debug_info   0000048c  00000000  00000000  000015a4  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  7 .debug_abbrev 0000044e  00000000  00000000  00001a30  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  8 .debug_line   0000001a  00000000  00000000  00001e7e  2**0
+                  CONTENTS, READONLY, DEBUGGING
+  9 .debug_str    0000017a  00000000  00000000  00001e98  2**0
+                  CONTENTS, READONLY, DEBUGGING
+
+Disassembly of section .text:
+
+00000000 <__vectors>:
+   0:	12 c0       	rjmp	.+36     	; 0x26 <__ctors_end>
+   2:	19 c0       	rjmp	.+50     	; 0x36 <__bad_interrupt>
+   4:	18 c0       	rjmp	.+48     	; 0x36 <__bad_interrupt>
+   6:	17 c0       	rjmp	.+46     	; 0x36 <__bad_interrupt>
+   8:	16 c0       	rjmp	.+44     	; 0x36 <__bad_interrupt>
+   a:	15 c0       	rjmp	.+42     	; 0x36 <__bad_interrupt>
+   c:	14 c0       	rjmp	.+40     	; 0x36 <__bad_interrupt>
+   e:	13 c0       	rjmp	.+38     	; 0x36 <__bad_interrupt>
+  10:	12 c0       	rjmp	.+36     	; 0x36 <__bad_interrupt>
+  12:	11 c0       	rjmp	.+34     	; 0x36 <__bad_interrupt>
+  14:	10 c0       	rjmp	.+32     	; 0x36 <__bad_interrupt>
+  16:	0f c0       	rjmp	.+30     	; 0x36 <__bad_interrupt>
+  18:	0e c0       	rjmp	.+28     	; 0x36 <__bad_interrupt>
+  1a:	0d c0       	rjmp	.+26     	; 0x36 <__bad_interrupt>
+  1c:	0c c0       	rjmp	.+24     	; 0x36 <__bad_interrupt>
+  1e:	0b c0       	rjmp	.+22     	; 0x36 <__bad_interrupt>
+  20:	0a c0       	rjmp	.+20     	; 0x36 <__bad_interrupt>
+  22:	09 c0       	rjmp	.+18     	; 0x36 <__bad_interrupt>
+  24:	08 c0       	rjmp	.+16     	; 0x36 <__bad_interrupt>
+
+00000026 <__ctors_end>:
+  26:	11 24       	eor	r1, r1
+  28:	1f be       	out	0x3f, r1	; 63
+  2a:	cf e5       	ldi	r28, 0x5F	; 95
+  2c:	d4 e0       	ldi	r29, 0x04	; 4
+  2e:	de bf       	out	0x3e, r29	; 62
+  30:	cd bf       	out	0x3d, r28	; 61
+  32:	20 d0       	rcall	.+64     	; 0x74 <main>
+  34:	4b c0       	rjmp	.+150    	; 0xcc <_exit>
+
+00000036 <__bad_interrupt>:
+  36:	e4 cf       	rjmp	.-56     	; 0x0 <__vectors>
+
+00000038 <shift_in>:
+----------------FUNCTION TO SHIFT DATA INTO 74HC595 -------------------------
+Toggles the Shift Clock
+-----------------------------------------------------------------------------*/
+void shift_in(void)
+{
+Shift_Clk_H;
+  38:	c3 9a       	sbi	0x18, 3	; 24
+	#else
+		//round up by default
+		__ticks_dc = (uint32_t)(ceil(fabs(__tmp)));
+	#endif
+
+	__builtin_avr_delay_cycles(__ticks_dc);
+  3a:	87 e8       	ldi	r24, 0x87	; 135
+  3c:	93 e1       	ldi	r25, 0x13	; 19
+  3e:	01 97       	sbiw	r24, 0x01	; 1
+  40:	f1 f7       	brne	.-4      	; 0x3e <__SP_H__>
+  42:	00 c0       	rjmp	.+0      	; 0x44 <__SREG__+0x5>
+  44:	00 00       	nop
+delay(20);   // these delays are arbitrary - they are here to slow things down so you can see the pattern
+// for Option 1 - the delay should be around 20 for Option 2 - the delay should be about 3.
+Shift_Clk_L;
+  46:	c3 98       	cbi	0x18, 3	; 24
+  48:	87 e8       	ldi	r24, 0x87	; 135
+  4a:	93 e1       	ldi	r25, 0x13	; 19
+  4c:	01 97       	sbiw	r24, 0x01	; 1
+  4e:	f1 f7       	brne	.-4      	; 0x4c <__SREG__+0xd>
+  50:	00 c0       	rjmp	.+0      	; 0x52 <__SREG__+0x13>
+  52:	00 00       	nop
+  54:	08 95       	ret
+
+00000056 <latch_in>:
+-----------------FUNCTIONS TO LATCH DATA TO OUTPUTS IN 74HC595 --------------
+Toggles the Latch Clock
+-----------------------------------------------------------------------------*/
+void latch_in(void)
+{
+Latch_Clk_H;
+  56:	c2 9a       	sbi	0x18, 2	; 24
+  58:	8d ee       	ldi	r24, 0xED	; 237
+  5a:	92 e0       	ldi	r25, 0x02	; 2
+  5c:	01 97       	sbiw	r24, 0x01	; 1
+  5e:	f1 f7       	brne	.-4      	; 0x5c <latch_in+0x6>
+  60:	00 c0       	rjmp	.+0      	; 0x62 <latch_in+0xc>
+  62:	00 00       	nop
+delay(3); // these delays are arbitrary - they are here to slow things down so you can see the pattern
+Latch_Clk_L;
+  64:	c2 98       	cbi	0x18, 2	; 24
+  66:	8d ee       	ldi	r24, 0xED	; 237
+  68:	92 e0       	ldi	r25, 0x02	; 2
+  6a:	01 97       	sbiw	r24, 0x01	; 1
+  6c:	f1 f7       	brne	.-4      	; 0x6a <latch_in+0x14>
+  6e:	00 c0       	rjmp	.+0      	; 0x70 <latch_in+0x1a>
+  70:	00 00       	nop
+  72:	08 95       	ret
+
+00000074 <main>:
+
+/*----------------------------------------------------------------
+---------------------------MAIN FUNCTION--------------------------
+------------------------------------------------------------------*/
+void main(void)
+{
+  74:	cf 93       	push	r28
+  76:	df 93       	push	r29
+  78:	cd b7       	in	r28, 0x3d	; 61
+  7a:	de b7       	in	r29, 0x3e	; 62
+  7c:	60 97       	sbiw	r28, 0x10	; 16
+  7e:	0f b6       	in	r0, 0x3f	; 63
+  80:	f8 94       	cli
+  82:	de bf       	out	0x3e, r29	; 62
+  84:	0f be       	out	0x3f, r0	; 63
+  86:	cd bf       	out	0x3d, r28	; 61
+
+CONTROL_DDR = 0xFF;  // Set the Control DDR (i.e. DDRB) to be all outputs
+  88:	8f ef       	ldi	r24, 0xFF	; 255
+  8a:	87 bb       	out	0x17, r24	; 23
+
+int output[8] = {1,0,0,0,0,0,0,0};   // set up array of integer data to create pattern to show on the LEDs hooked to the 595 outputs
+  8c:	ce 01       	movw	r24, r28
+  8e:	01 96       	adiw	r24, 0x01	; 1
+  90:	7c 01       	movw	r14, r24
+  92:	80 e1       	ldi	r24, 0x10	; 16
+  94:	f7 01       	movw	r30, r14
+  96:	11 92       	st	Z+, r1
+  98:	8a 95       	dec	r24
+  9a:	e9 f7       	brne	.-6      	; 0x96 <main+0x22>
+  9c:	81 e0       	ldi	r24, 0x01	; 1
+  9e:	90 e0       	ldi	r25, 0x00	; 0
+  a0:	9a 83       	std	Y+2, r25	; 0x02
+  a2:	89 83       	std	Y+1, r24	; 0x01
+
+//int j;  // Loop variable for OPTION 2 - If you use OPTION 1 you should comment this out or you will get a warning upon compiling
+
+//reset_SR();  // Toggle the Reset Pin on the 595 to clear out SR
+
+Set_Enable;  // Set the Output Enable Pin on the 595 (PB1 in this case) LOW to allow data to show on the outputs upon being latched
+  a4:	c4 98       	cbi	0x18, 4	; 24
+  a6:	6e 01       	movw	r12, r28
+  a8:	f1 e1       	ldi	r31, 0x11	; 17
+  aa:	cf 0e       	add	r12, r31
+  ac:	d1 1c       	adc	r13, r1
+  ae:	87 01       	movw	r16, r14
+// the fact that everything in the shift register "shifts" over when a new bit is latched.
+// Option 1 is simple. Comment this code out if you plan to use Option 2.
+
+		for (i=0; i<8; i++)  
+		{
+		REGISTER_BIT(PORTB,0) = output[i];   // Send data from the "output" array out to the Serial Input Pin on the 595 via PB0
+  b0:	f8 01       	movw	r30, r16
+  b2:	80 81       	ld	r24, Z
+  b4:	0e 5f       	subi	r16, 0xFE	; 254
+  b6:	1f 4f       	sbci	r17, 0xFF	; 255
+  b8:	80 fd       	sbrc	r24, 0
+  ba:	c0 9a       	sbi	0x18, 0	; 24
+  bc:	80 ff       	sbrs	r24, 0
+  be:	c0 98       	cbi	0x18, 0	; 24
+		// Whatever state (hi or low) the Data Pin (PB0) is in when the shift clock is hit, is the state that is stored in the Shift Register
+		shift_in();  // toggle Shift Clock Pin on 595 to shift current bit into SR
+  c0:	bb df       	rcall	.-138    	; 0x38 <shift_in>
+		
+		latch_in();  // toggle the Latch Clock Pin on 595 to update the display after each new bit is shifted in
+  c2:	c9 df       	rcall	.-110    	; 0x56 <latch_in>
+// Read the output array from position 0 to 7 (i=0-7) and latch the display
+// as each bit is shifted in so the display shows the "scrolling effect" and utilizes 
+// the fact that everything in the shift register "shifts" over when a new bit is latched.
+// Option 1 is simple. Comment this code out if you plan to use Option 2.
+
+		for (i=0; i<8; i++)  
+  c4:	0c 15       	cp	r16, r12
+  c6:	1d 05       	cpc	r17, r13
+  c8:	99 f7       	brne	.-26     	; 0xb0 <main+0x3c>
+  ca:	f1 cf       	rjmp	.-30     	; 0xae <main+0x3a>
+
+000000cc <_exit>:
+  cc:	f8 94       	cli
+
+000000ce <__stop_program>:
+  ce:	ff cf       	rjmp	.-2      	; 0xce <__stop_program>
