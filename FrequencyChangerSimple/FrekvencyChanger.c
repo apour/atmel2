@@ -40,6 +40,8 @@ volatile unsigned int repeat_cnt2=0;
 volatile unsigned int measureFrc=0;
 volatile unsigned int signalDetectorCounter=0;
 volatile unsigned int lastSignalDetectorCounter=0;
+volatile unsigned int temp=0;
+
 
 // output signal
 volatile unsigned int outSignalLimit=0;
@@ -54,6 +56,7 @@ volatile unsigned short signalDetected = 0;
 signed int voltage=0;				// input voltage for ADC - set Frequency diff
 
 volatile unsigned short minimumFrequencyCounter = 0;
+unsigned short forceNoSignal=0;
 	
 //init adc
 void init_ADC()   
@@ -101,7 +104,7 @@ SIGNAL(SIG_OVERFLOW0)
    // set counter
    TCNT0 = TIMER0_CONST;
    signalDetectorCounter++;
-   if (signalDetectorCounter>SIGNAL_DETECTOR_MAX_COUNTER)
+   if (signalDetectorCounter>=SIGNAL_DETECTOR_MAX_COUNTER)
 		{
 		// possible no signal
 		signalDetectorCounter = 0;
@@ -135,7 +138,8 @@ SIGNAL(SIG_INTERRUPT1)
 ISR (TIMER2_OVF_vect)
 	{
 	TCNT2 = TIMER2_CONST;
-	if (++repeat_cnt2 == 64)	// 1s
+	++repeat_cnt2;
+	if (repeat_cnt2 == 64)	// 1s
 		{
 		repeat_cnt2 = 0;
 		
@@ -145,7 +149,7 @@ ISR (TIMER2_OVF_vect)
 		while (ADCSRA & (1<<ADSC)); // wait for conversion to complete
 		voltage = ADCW; 
 
-		if (minimumFrequencyCounter < 10)	// minimum frequency 10 Hz
+		if (minimumFrequencyCounter < 5)	// minimum frequency 5 Hz
 		{
 #ifdef DUMP_TO_UART	  
 			uartPutc('R');
@@ -155,12 +159,13 @@ ISR (TIMER2_OVF_vect)
 		minimumFrequencyCounter = 0;
 		
 		// check signal detection
-		if (lastSignalDetectorCounter < 20)
+		if (lastSignalDetectorCounter < 10 || forceNoSignal==1)
 		{
 #ifdef DUMP_TO_UART	  
 			uartPutc('-');
 #endif			
 			signalDetected = 0;
+			forceNoSignal = 0;
 		}
 		else
 		{
@@ -169,8 +174,9 @@ ISR (TIMER2_OVF_vect)
 #endif						
 			signalDetected = 1;
 		}
-		
+				
 #ifdef DUMP_TO_UART	  
+        uartPutc(' ');
 		uartPutc('V');
 		uartPutc(':');
 		uartWriteUInt16(voltage);	
@@ -229,7 +235,7 @@ int main(void)
 	
 	while (1)
 		{
-		if (needChange && signalDetected==1)
+		if (needChange && signalDetected==1 && forceNoSignal==0)
 			{
 			OutFrequenceChangeLogicLevel();
 			needChange = 0;
@@ -237,11 +243,19 @@ int main(void)
 		
 		if (needCheck)
 			{
-#ifdef DUMP_TO_UART	  
-		    uartPutc('X');				
-#endif		
 			needCheck = 0;
-			lastSignalDetectorCounter = signalDetectorCounter;
+			temp = lastSignalDetectorCounter;
+			lastSignalDetectorCounter = signalDetectorCounter;		
+			
+			// limit test -> big change means possible no signal
+			unsigned int maxDiff = signalDetectorCounter/8;
+			unsigned int fDiff = abs(lastSignalDetectorCounter - temp);
+			
+			if (fDiff > maxDiff)
+			{
+				forceNoSignal = 1;
+			}						 		
+			
 			outSignalLimit = signalDetectorCounter/2;
 			
 			delta = outSignalLimit;
@@ -261,7 +275,15 @@ int main(void)
 				delta = (unsigned int) deltaLong;
 				outSignalLimit-= delta;
 			}
-						
+
+/* AP - Test - Begin */
+			if (outSignalLimit<10)
+			{
+				forceNoSignal = 1;
+				continue;
+			}						
+/* AP - Test - End */			
+
 			signalDetectorCounter=0;		
 			if (signalOutCounter>outSignalLimit)
 				{
