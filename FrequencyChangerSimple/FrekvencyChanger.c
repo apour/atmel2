@@ -20,7 +20,6 @@
 
 //#define __AVR_ATmega8__
 #define F_CPU 16000000UL // Clock Speed
-//#define F_CPU 12000000UL // Clock Speed
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -30,7 +29,7 @@
 //#define DUMP_TO_UART									1
 #define TIMER0_CONST									256 - 200
 #define TIMER2_CONST									256 - 183
-#define SIGNAL_DETECTOR_MAX_COUNTER						1200
+#define SIGNAL_DETECTOR_MAX_COUNTER						6000 //1200
 
 // counters
 volatile unsigned int repeat_cnt1=0;
@@ -139,7 +138,8 @@ ISR (TIMER2_OVF_vect)
 	{
 	TCNT2 = TIMER2_CONST;
 	++repeat_cnt2;
-	if (repeat_cnt2 == 64)	// 1s
+	//if (repeat_cnt2 == 64)	// 1s
+	if (repeat_cnt2 == 8)	// 1s
 		{
 		repeat_cnt2 = 0;
 		
@@ -149,7 +149,7 @@ ISR (TIMER2_OVF_vect)
 		while (ADCSRA & (1<<ADSC)); // wait for conversion to complete
 		voltage = ADCW; 
 
-		if (minimumFrequencyCounter < 5)	// minimum frequency 5 Hz
+		if (minimumFrequencyCounter < 1)	// minimum frequency 1 Hz
 		{
 #ifdef DUMP_TO_UART	  
 			uartPutc('R');
@@ -159,7 +159,8 @@ ISR (TIMER2_OVF_vect)
 		minimumFrequencyCounter = 0;
 		
 		// check signal detection
-		if (lastSignalDetectorCounter < 10 || forceNoSignal==1)
+		if (lastSignalDetectorCounter < 1 || forceNoSignal==1)
+		//if (lastSignalDetectorCounter < 1)
 		{
 #ifdef DUMP_TO_UART	  
 			uartPutc('-');
@@ -174,7 +175,7 @@ ISR (TIMER2_OVF_vect)
 #endif						
 			signalDetected = 1;
 		}
-				
+				//
 #ifdef DUMP_TO_UART	  
         uartPutc(' ');
 		uartPutc('V');
@@ -248,16 +249,26 @@ int main(void)
 			lastSignalDetectorCounter = signalDetectorCounter;		
 			
 			// limit test -> big change means possible no signal
-			unsigned int maxDiff = signalDetectorCounter/8;
+			unsigned int maxDiff = signalDetectorCounter;
+			if (signalDetectorCounter<10)
+			{
+				maxDiff=maxDiff/2;
+			}				
+			else
+			{
+				maxDiff=maxDiff/4;
+			}
+			//maxDiff=maxDiff/4;
 			unsigned int fDiff = abs(lastSignalDetectorCounter - temp);
 			
-			if (fDiff > maxDiff)
+			if (signalDetectorCounter>10 && fDiff > maxDiff)
 			{
 				forceNoSignal = 1;
-			}						 		
+				//continue;
+			}
 			
 			outSignalLimit = signalDetectorCounter/2;
-			
+						
 			delta = outSignalLimit;
 			if (voltage>0x200)
 			{
@@ -275,14 +286,6 @@ int main(void)
 				delta = (unsigned int) deltaLong;
 				outSignalLimit-= delta;
 			}
-
-/* AP - Test - Begin */
-			if (outSignalLimit<10)
-			{
-				forceNoSignal = 1;
-				continue;
-			}						
-/* AP - Test - End */			
 
 			signalDetectorCounter=0;		
 			if (signalOutCounter>outSignalLimit)
