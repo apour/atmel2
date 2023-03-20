@@ -23,7 +23,7 @@
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <avr/delay.h>
+#include <util/delay.h>
 
 #define ADJUST_VOLTAGE_FREQUENCY_INPUT_PIN				1
 //#define DUMP_TO_UART									1
@@ -31,8 +31,10 @@
 #define TIMER2_CONST									256 - 183
 #define SIGNAL_DETECTOR_MAX_COUNTER						6000 //1200
 
+#define SIGNAL_DETECTOR_COUNTER_STOP_MEASURE_LIMIT		0x1400
+#define SIGNAL_DETECTOR_COUNTER_START_MEASURE_LIMIT		0x1200
+
 // counters
-volatile unsigned int repeat_cnt1=0;
 volatile unsigned int repeat_cnt2=0;
 
 // measure input signal
@@ -41,22 +43,26 @@ volatile unsigned int signalDetectorCounter=0;
 volatile unsigned int lastSignalDetectorCounter=0;
 volatile unsigned int temp=0;
 
-
 // output signal
 volatile unsigned int outSignalLimit=0;
 volatile unsigned int signalOutCounter=0;
-unsigned long deltaOutSignalLimit=0;
 volatile unsigned int delta=0;
 volatile unsigned long deltaLong = 0;
 
 volatile unsigned short needChange = 0;
 volatile unsigned short needCheck = 0;
-volatile unsigned short signalDetected = 0;
 signed int voltage=0;				// input voltage for ADC - set Frequency diff
 
 volatile unsigned short minimumFrequencyCounter = 0;
-unsigned short forceNoSignal=0;
-	
+
+enum
+	{
+	mWaitForSignal,
+	mMeasure,
+	mMeasureStopping
+	}	
+mMode;
+
 //init adc
 void init_ADC()   
 	{ 
@@ -97,7 +103,7 @@ void OutFrequenceChangeLogicLevel()
 		}	
 	}			
       
-SIGNAL(SIG_OVERFLOW0)
+SIGNAL(TIM0_OVF_vect)
    {
    cli();
    // set counter
@@ -110,6 +116,7 @@ SIGNAL(SIG_OVERFLOW0)
 		lastSignalDetectorCounter = 0;
 		needChange = 0;
 		needCheck = 0;
+		mMode = mWaitForSignal;
 		sei();
 		return;
 		}
@@ -126,7 +133,7 @@ SIGNAL(SIG_OVERFLOW0)
    }
 
 
-SIGNAL(SIG_INTERRUPT1)
+SIGNAL(INT1_vect)
 	{
 	cli();
 	needCheck = 1;
@@ -134,12 +141,55 @@ SIGNAL(SIG_INTERRUPT1)
 	sei();
 	}	
 
+unsigned short isSignalStopLimit()
+	{
+	return (lastSignalDetectorCounter > SIGNAL_DETECTOR_COUNTER_STOP_MEASURE_LIMIT) ? 1 : 0;
+	}
+
+unsigned short isSignalStartLimit()
+	{
+	return (lastSignalDetectorCounter > SIGNAL_DETECTOR_COUNTER_START_MEASURE_LIMIT) ? 1 : 0;
+	}
+
+void checkSignalDetectionLimits()
+	{
+	switch (mMode)
+		{
+		case mMeasure:
+			if (minimumFrequencyCounter<1 || isSignalStopLimit())
+			{
+				mMode = mWaitForSignal;
+#ifdef DUMP_TO_UART	  
+	 			uartPutc('-');
+#endif
+			}
+			break;
+		case mWaitForSignal:
+			if (isSignalStartLimit())
+			{
+				mMode = mMeasure;
+#ifdef DUMP_TO_UART	  
+	 			uartPutc('+');
+#endif
+			}
+			break;
+		case mMeasureStopping:
+			mMode = mWaitForSignal;
+#ifdef DUMP_TO_UART	  
+	 			uartPutc('-');
+#endif
+			break;
+		default:
+			break;
+		}
+	}
+
 ISR (TIMER2_OVF_vect)
 	{
 	TCNT2 = TIMER2_CONST;
 	++repeat_cnt2;
 	//if (repeat_cnt2 == 64)	// 1s
-	if (repeat_cnt2 == 8)	// 1s
+	if (repeat_cnt2 == 64)	// 1s
 		{
 		repeat_cnt2 = 0;
 		
@@ -149,33 +199,8 @@ ISR (TIMER2_OVF_vect)
 		while (ADCSRA & (1<<ADSC)); // wait for conversion to complete
 		voltage = ADCW; 
 
-		if (minimumFrequencyCounter < 1)	// minimum frequency 1 Hz
-		{
-#ifdef DUMP_TO_UART	  
-			uartPutc('R');
-#endif						
-			lastSignalDetectorCounter = 0;
-		}
-		minimumFrequencyCounter = 0;
-		
-		// check signal detection
-		if (lastSignalDetectorCounter < 1 || forceNoSignal==1)
-		//if (lastSignalDetectorCounter < 1)
-		{
-#ifdef DUMP_TO_UART	  
-			uartPutc('-');
-#endif			
-			signalDetected = 0;
-			forceNoSignal = 0;
-		}
-		else
-		{
-#ifdef DUMP_TO_UART	  
-			uartPutc('+');
-#endif						
-			signalDetected = 1;
-		}
-				//
+		checkSignalDetectionLimits();
+
 #ifdef DUMP_TO_UART	  
         uartPutc(' ');
 		uartPutc('V');
@@ -219,6 +244,40 @@ static void hardwareInit(void)
 	sei();
 }
 	
+void adjustOutputSignal()
+{
+	delta = outSignalLimit;
+	if (voltage>0x200)
+	{
+		deltaLong = (unsigned long) (voltage-0x200);
+		deltaLong*= delta;
+		deltaLong>>= 10;
+		delta = (unsigned int) deltaLong;
+		outSignalLimit+= delta;
+	}
+	else
+	{
+		deltaLong = (unsigned long) (0x200-voltage);
+		deltaLong*= delta;
+		deltaLong>>= 10;
+		delta = (unsigned int) deltaLong;
+		outSignalLimit-= delta;
+	}
+}
+
+void checkForQuickDiff()
+{
+	// limit test -> big change means possible no signal
+	unsigned int maxDiff = signalDetectorCounter;
+	maxDiff=maxDiff/4;
+	
+	unsigned int fDiff = abs(lastSignalDetectorCounter - temp);
+	if (fDiff > maxDiff)
+	{
+		mMode = mMeasureStopping;
+	}
+}
+
 int main(void)  
 {
 	hardwareInit();
@@ -232,11 +291,13 @@ int main(void)
 	timer2Init();
 	init_ADC();
 	
+	mMode = mWaitForSignal;
+
     sei();
 	
 	while (1)
 		{
-		if (needChange && signalDetected==1 && forceNoSignal==0)
+		if (needChange && mMode == mMeasure)
 			{
 			OutFrequenceChangeLogicLevel();
 			needChange = 0;
@@ -245,48 +306,15 @@ int main(void)
 		if (needCheck)
 			{
 			needCheck = 0;
+			if (mMode != mMeasure)
+				continue;
 			temp = lastSignalDetectorCounter;
 			lastSignalDetectorCounter = signalDetectorCounter;		
 			
-			// limit test -> big change means possible no signal
-			unsigned int maxDiff = signalDetectorCounter;
-			if (signalDetectorCounter<10)
-			{
-				maxDiff=maxDiff/2;
-			}				
-			else
-			{
-				maxDiff=maxDiff/4;
-			}
-			//maxDiff=maxDiff/4;
-			unsigned int fDiff = abs(lastSignalDetectorCounter - temp);
-			
-			if (signalDetectorCounter>10 && fDiff > maxDiff)
-			{
-				forceNoSignal = 1;
-				//continue;
-			}
-			
+			checkForQuickDiff();
 			outSignalLimit = signalDetectorCounter/2;
-						
-			delta = outSignalLimit;
-			if (voltage>0x200)
-			{
-				deltaLong = (unsigned long) (voltage-0x200);
-				deltaLong*= delta;
-				deltaLong>>= 10;
-				delta = (unsigned int) deltaLong;
-				outSignalLimit+= delta;
-			}
-			else
-			{
-				deltaLong = (unsigned long) (0x200-voltage);
-				deltaLong*= delta;
-				deltaLong>>= 10;
-				delta = (unsigned int) deltaLong;
-				outSignalLimit-= delta;
-			}
-
+			adjustOutputSignal();					
+	
 			signalDetectorCounter=0;		
 			if (signalOutCounter>outSignalLimit)
 				{
