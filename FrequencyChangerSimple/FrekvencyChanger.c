@@ -103,7 +103,7 @@ void OutFrequenceChangeLogicLevel()
 		}	
 	}			
       
-SIGNAL(TIM0_OVF_vect)
+SIGNAL(SIG_OVERFLOW0)
    {
    cli();
    // set counter
@@ -143,12 +143,20 @@ SIGNAL(INT1_vect)
 
 unsigned short isSignalStopLimit()
 	{
+	if (lastSignalDetectorCounter == 0)
+		return 1;
+	if (minimumFrequencyCounter < 1)
+		return 1;
 	return (lastSignalDetectorCounter > SIGNAL_DETECTOR_COUNTER_STOP_MEASURE_LIMIT) ? 1 : 0;
 	}
 
 unsigned short isSignalStartLimit()
 	{
-	return (lastSignalDetectorCounter > SIGNAL_DETECTOR_COUNTER_START_MEASURE_LIMIT) ? 1 : 0;
+	if (lastSignalDetectorCounter == 0)
+		return 0;
+	if (minimumFrequencyCounter < 2)
+		return 0;
+	return (lastSignalDetectorCounter < SIGNAL_DETECTOR_COUNTER_START_MEASURE_LIMIT) ? 1 : 0;
 	}
 
 void checkSignalDetectionLimits()
@@ -156,7 +164,7 @@ void checkSignalDetectionLimits()
 	switch (mMode)
 		{
 		case mMeasure:
-			if (minimumFrequencyCounter<1 || isSignalStopLimit())
+			if (isSignalStopLimit())
 			{
 				mMode = mWaitForSignal;
 #ifdef DUMP_TO_UART	  
@@ -188,7 +196,6 @@ ISR (TIMER2_OVF_vect)
 	{
 	TCNT2 = TIMER2_CONST;
 	++repeat_cnt2;
-	//if (repeat_cnt2 == 64)	// 1s
 	if (repeat_cnt2 == 64)	// 1s
 		{
 		repeat_cnt2 = 0;
@@ -202,6 +209,14 @@ ISR (TIMER2_OVF_vect)
 		checkSignalDetectionLimits();
 
 #ifdef DUMP_TO_UART	  
+		uartPutc(' ');
+		uartPutc('M');
+		uartPutc(':');
+		uartWriteUInt8(mMode);	
+		uartPutc(' ');
+		uartPutc('F');
+		uartPutc(':');
+		uartWriteUInt8(minimumFrequencyCounter);	
         uartPutc(' ');
 		uartPutc('V');
 		uartPutc(':');
@@ -217,7 +232,8 @@ ISR (TIMER2_OVF_vect)
 		uartPutc(' ');
 		uartPutc('\r');
 		uartPutc('\n');
-#endif						
+#endif				
+		minimumFrequencyCounter	= 0;
 		}
 	}
 
@@ -267,6 +283,10 @@ void adjustOutputSignal()
 
 void checkForQuickDiff()
 {
+	if (minimumFrequencyCounter<2)
+	{
+		return;
+	}
 	// limit test -> big change means possible no signal
 	unsigned int maxDiff = signalDetectorCounter;
 	maxDiff=maxDiff/4;
@@ -306,8 +326,6 @@ int main(void)
 		if (needCheck)
 			{
 			needCheck = 0;
-			if (mMode != mMeasure)
-				continue;
 			temp = lastSignalDetectorCounter;
 			lastSignalDetectorCounter = signalDetectorCounter;		
 			
