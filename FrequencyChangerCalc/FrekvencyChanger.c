@@ -49,6 +49,7 @@ signed int voltage=0;				// input voltage for ADC - set Frequency diff
 volatile unsigned short minimumFrequencyCounter = 0;
 volatile unsigned int frequencyCounter = 0;
 volatile unsigned int lastFrequencyCounter = 0;
+volatile unsigned int calcDeltaLastValid = 0;
 volatile unsigned int outCounter = 0;
 volatile unsigned int delta = 0;
 volatile unsigned int calcDelta = 0;
@@ -56,6 +57,9 @@ volatile unsigned int calcDelta = 0;
 volatile unsigned short needRecalc = 0;
 volatile unsigned short needRefresh = 0;
 	
+volatile unsigned int tempTCNT1 = 0;
+volatile unsigned int filteredFrequencyCounter = 0;
+
 //init adc
 void init_ADC()   
 	{ 
@@ -109,10 +113,14 @@ ISR(TIMER0_OVF_vect)
 		uartPutc('F');
 		uartWriteUInt16(frequencyCounter);
 		uartPutc(' ');
+		uartPutc('O');
+		uartWriteUInt16(filteredFrequencyCounter);
+		uartPutc(' ');
 #endif						
 		
 		lastFrequencyCounter = frequencyCounter;
 		frequencyCounter = 0;
+		filteredFrequencyCounter = 0;
 		needRecalc = 1;
 		signalDetected = 1;
 
@@ -129,9 +137,6 @@ ISR(TIMER0_OVF_vect)
 		uartPutc('D');
 		uartWriteUInt16(calcDelta);
 		uartPutc(' ');
-		uartPutc('E');
-		//uartWriteUInt16(delta);
-		//uartPutc(' ');
 		uartPutc('V');
 		uartWriteUInt16(voltage);
 		uartPutc(' ');
@@ -166,8 +171,21 @@ ISR(TIMER0_OVF_vect)
 
 SIGNAL(SIG_INTERRUPT1)
 	{
-	cli();
+	cli();	
 	frequencyCounter++;
+	tempTCNT1 = TCNT1;
+	TCNT1 = 0;
+	if (signalDetected == 0)
+	{
+		filteredFrequencyCounter++;
+	}
+	else
+	{
+		if (tempTCNT1 > 78) // minimum signal length
+		{
+			filteredFrequencyCounter++;
+		}
+	}
 	sei();
 	}	
 
@@ -186,7 +204,10 @@ static void hardwareInit(void)
 	// set PC0 and PC2 as output
 	DDRC = _BV(PC0) | _BV(PC2);
 	PORTC = 0;
-	
+
+	TCNT1=0x00;
+	TCCR1B = (1<<CS12) | (1<<CS10);  // prescaler 1024
+	 
 	GICR |= _BV(INT1);	/* enable INT1 */
 	MCUCR|= _BV(ISC11);
 	MCUCR|= _BV(ISC01);
@@ -242,15 +263,29 @@ int main(void)
 				uartWriteUInt16(temp);
 #endif			
 				}					
+				
 			// compare diff
-			//unsigned int maxDiff = calcDelta;
-			//maxDiff=maxDiff/2;
-			//unsigned int fDiff = abs(calcDelta - delta);
-			//
-			//if (fDiff > maxDiff)
-				//{
-				//signalDetected = 0;
-				//}
+			unsigned int maxDiff = calcDelta;
+			maxDiff=maxDiff/2;
+			unsigned int fDiff = abs(calcDelta - delta);
+			
+			if (fDiff > maxDiff)
+				{
+				signalDetected = 0;
+#ifdef DUMP_TO_UART	  
+				uartPutc('I');
+#endif			
+				//calcDelta = calcDeltaLastValid;
+				}
+			/*
+			else
+				{
+#ifdef DUMP_TO_UART	  
+				uartPutc('V');
+#endif			
+				calcDeltaLastValid = calcDelta;
+				}
+				*/
 			}
 		}			
 	return 1;
