@@ -33,6 +33,8 @@
 
 //#define TIMER0_CYCLES_PER_SECOND						50000
 #define TIMER0_CYCLES_PER_SECOND						6000
+//#define TCNT1_MIN_SIGNAL_LEN							81
+#define TCNT1_MIN_SIGNAL_LEN							81
 
 // counters
 volatile unsigned int repeat_cnt0=0;
@@ -59,6 +61,10 @@ volatile unsigned short needRefresh = 0;
 	
 volatile unsigned int tempTCNT1 = 0;
 volatile unsigned int filteredFrequencyCounter = 0;
+
+volatile unsigned int lastUsedTCNT1 = 0;
+volatile unsigned int minTCNT1 = 0;
+volatile unsigned int maxTCNT1 = 0;
 
 //init adc
 void init_ADC()   
@@ -116,15 +122,29 @@ ISR(TIMER0_OVF_vect)
 		uartPutc('O');
 		uartWriteUInt16(filteredFrequencyCounter);
 		uartPutc(' ');
+		uartPutc('P');
+		uartWriteUInt16(lastUsedTCNT1);
+		uartPutc(' ');
+		uartPutc('A');
+		uartWriteUInt16(minTCNT1);
+		uartPutc(' ');
+		uartPutc('B');
+		uartWriteUInt16(maxTCNT1);
+		uartPutc(' ');
 #endif						
-		
-		lastFrequencyCounter = frequencyCounter;
+
+		minTCNT1 = 10000;
+		maxTCNT1 = 0;		
+		//lastFrequencyCounter = frequencyCounter;
+		lastFrequencyCounter = filteredFrequencyCounter;
 		frequencyCounter = 0;
 		filteredFrequencyCounter = 0;
 		needRecalc = 1;
 		signalDetected = 1;
 
-		if (lastFrequencyCounter == 0)
+
+		//if (lastFrequencyCounter < 5)
+		if (lastFrequencyCounter < 3)
 			{
 			signalDetected = 0;
 			}
@@ -174,14 +194,27 @@ SIGNAL(SIG_INTERRUPT1)
 	cli();	
 	frequencyCounter++;
 	tempTCNT1 = TCNT1;
+	lastUsedTCNT1 = tempTCNT1;
 	TCNT1 = 0;
-	if (signalDetected == 0)
+
+	if (lastUsedTCNT1 < minTCNT1)
 	{
-		filteredFrequencyCounter++;
+		minTCNT1 = lastUsedTCNT1;
+	}	
+	if (lastUsedTCNT1 > maxTCNT1)
+	{
+		maxTCNT1 = lastUsedTCNT1;
 	}
-	else
+	
+	
+	//filteredFrequencyCounter++;
+	//if (signalDetected == 0)
+	//{
+		//filteredFrequencyCounter++;
+	//}
+	//else
 	{
-		if (tempTCNT1 > 78) // minimum signal length
+		if (tempTCNT1 > TCNT1_MIN_SIGNAL_LEN) // minimum signal length
 		{
 			filteredFrequencyCounter++;
 		}
@@ -277,6 +310,7 @@ int main(void)
 #endif			
 				//calcDelta = calcDeltaLastValid;
 				}
+			}				
 			/*
 			else
 				{
@@ -286,7 +320,7 @@ int main(void)
 				calcDeltaLastValid = calcDelta;
 				}
 				*/
-			}
+			//}
 		}			
 	return 1;
 }	
