@@ -31,10 +31,12 @@
 #define TIMER2_CONST									256 - 183
 #define SIGNAL_DETECTOR_MAX_COUNTER						6000 //1200
 
-//#define TIMER0_CYCLES_PER_SECOND						50000
 #define TIMER0_CYCLES_PER_SECOND						6000
-//#define TCNT1_MIN_SIGNAL_LEN							81
 #define TCNT1_MIN_SIGNAL_LEN							81
+
+#define TCNT1_SIGNALS_PER_SECONDS						15625
+#define TCNT1_MIN_SIGNAL_LEN_DEF						TCNT1_SIGNALS_PER_SECONDS/2
+
 
 // counters
 volatile unsigned int repeat_cnt0=0;
@@ -48,9 +50,9 @@ volatile unsigned long deltaLong = 0;
 volatile unsigned short signalDetected = 0;
 signed int voltage=0;				// input voltage for ADC - set Frequency diff
 
-volatile unsigned short minimumFrequencyCounter = 0;
 volatile unsigned int frequencyCounter = 0;
 volatile unsigned int lastFrequencyCounter = 0;
+volatile unsigned int tempFrequencyCounter = 0;
 volatile unsigned int calcDeltaLastValid = 0;
 volatile unsigned int outCounter = 0;
 volatile unsigned int delta = 0;
@@ -63,8 +65,7 @@ volatile unsigned int tempTCNT1 = 0;
 volatile unsigned int filteredFrequencyCounter = 0;
 
 volatile unsigned int lastUsedTCNT1 = 0;
-volatile unsigned int minTCNT1 = 0;
-volatile unsigned int maxTCNT1 = 0;
+volatile unsigned int TCNT1MinSignalLimit = 0;
 
 //init adc
 void init_ADC()   
@@ -125,35 +126,39 @@ ISR(TIMER0_OVF_vect)
 		uartPutc('P');
 		uartWriteUInt16(lastUsedTCNT1);
 		uartPutc(' ');
-		uartPutc('A');
-		uartWriteUInt16(minTCNT1);
-		uartPutc(' ');
-		uartPutc('B');
-		uartWriteUInt16(maxTCNT1);
+		uartPutc('L');
+		uartWriteUInt16(TCNT1MinSignalLimit);
 		uartPutc(' ');
 #endif						
 
-		minTCNT1 = 10000;
-		maxTCNT1 = 0;		
 		//lastFrequencyCounter = frequencyCounter;
+		tempFrequencyCounter = frequencyCounter;
 		lastFrequencyCounter = filteredFrequencyCounter;
 		frequencyCounter = 0;
 		filteredFrequencyCounter = 0;
 		needRecalc = 1;
 		signalDetected = 1;
 
-
-		//if (lastFrequencyCounter < 5)
-		if (lastFrequencyCounter < 3)
+		TCNT1MinSignalLimit = TCNT1_MIN_SIGNAL_LEN;
+		if (signalDetected == 1)
+		{
+			if (lastFrequencyCounter > 0)
+			{
+				//TCNT1MinSignalLimit = TCNT1_MIN_SIGNAL_LEN_DEF / 2 / tempFrequencyCounter;
+				TCNT1MinSignalLimit = TCNT1_MIN_SIGNAL_LEN_DEF / 4 / lastFrequencyCounter;
+			}	
+		}
+				
+		//if (lastFrequencyCounter < 3)
+		if (lastFrequencyCounter < 2)
 			{
 			signalDetected = 0;
 			}
-		//if (calcDelta>0x5000)
-			//{
-			//signalDetected = 0;
-			//}
 		
-#ifdef DUMP_TO_UART	  
+#ifdef DUMP_TO_UART
+		uartPutc('C');
+		uartWriteUInt16(TCNT1MinSignalLimit);
+		uartPutc(' ');	  
 		uartPutc('D');
 		uartWriteUInt16(calcDelta);
 		uartPutc(' ');
@@ -196,29 +201,13 @@ SIGNAL(SIG_INTERRUPT1)
 	tempTCNT1 = TCNT1;
 	lastUsedTCNT1 = tempTCNT1;
 	TCNT1 = 0;
-
-	if (lastUsedTCNT1 < minTCNT1)
-	{
-		minTCNT1 = lastUsedTCNT1;
-	}	
-	if (lastUsedTCNT1 > maxTCNT1)
-	{
-		maxTCNT1 = lastUsedTCNT1;
-	}
 	
-	
-	//filteredFrequencyCounter++;
-	//if (signalDetected == 0)
-	//{
-		//filteredFrequencyCounter++;
-	//}
-	//else
-	{
-		if (tempTCNT1 > TCNT1_MIN_SIGNAL_LEN) // minimum signal length
+	//if (tempTCNT1 > TCNT1_MIN_SIGNAL_LEN) // minimum signal length
+	if (tempTCNT1 > TCNT1MinSignalLimit)
 		{
-			filteredFrequencyCounter++;
+		filteredFrequencyCounter++;
 		}
-	}
+
 	sei();
 	}	
 
@@ -297,30 +286,7 @@ int main(void)
 #endif			
 				}					
 				
-			// compare diff
-			unsigned int maxDiff = calcDelta;
-			maxDiff=maxDiff/2;
-			unsigned int fDiff = abs(calcDelta - delta);
-			
-			if (fDiff > maxDiff)
-				{
-				signalDetected = 0;
-#ifdef DUMP_TO_UART	  
-				uartPutc('I');
-#endif			
-				//calcDelta = calcDeltaLastValid;
-				}
 			}				
-			/*
-			else
-				{
-#ifdef DUMP_TO_UART	  
-				uartPutc('V');
-#endif			
-				calcDeltaLastValid = calcDelta;
-				}
-				*/
-			//}
 		}			
 	return 1;
 }	
