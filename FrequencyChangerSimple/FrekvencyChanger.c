@@ -26,13 +26,18 @@
 #include <util/delay.h>
 
 #define ADJUST_VOLTAGE_FREQUENCY_INPUT_PIN				1
-//#define DUMP_TO_UART									1
+#define DUMP_TO_UART									1
 #define TIMER0_CONST									256 - 200
 #define TIMER2_CONST									256 - 183
 #define SIGNAL_DETECTOR_MAX_COUNTER						6000 //1200
 
 #define SIGNAL_DETECTOR_COUNTER_STOP_MEASURE_LIMIT		0x1400
 #define SIGNAL_DETECTOR_COUNTER_START_MEASURE_LIMIT		0x1200
+
+#define TCNT1_MIN_SIGNAL_LEN							81
+#define TCNT1_SIGNALS_PER_SECONDS						15625
+#define TCNT1_MIN_SIGNAL_LEN_DEF						TCNT1_SIGNALS_PER_SECONDS/2
+
 
 // counters
 volatile unsigned int repeat_cnt2=0;
@@ -54,6 +59,9 @@ volatile unsigned short needCheck = 0;
 signed int voltage=0;				// input voltage for ADC - set Frequency diff
 
 volatile unsigned short minimumFrequencyCounter = 0;
+volatile unsigned int tempTCNT1 = 0;
+volatile unsigned int lastUsedTCNT1 = 0;
+volatile unsigned int TCNT1MinSignalLimit = 0;
 
 enum
 	{
@@ -137,6 +145,11 @@ SIGNAL(INT1_vect)
 	{
 	cli();
 	needCheck = 1;
+	
+	tempTCNT1 = TCNT1;
+	lastUsedTCNT1 = tempTCNT1;
+	TCNT1 = 0;
+	
 	minimumFrequencyCounter++;
 	sei();
 	}	
@@ -218,6 +231,10 @@ ISR (TIMER2_OVF_vect)
 		uartPutc(':');
 		uartWriteUInt8(minimumFrequencyCounter);	
         uartPutc(' ');
+		uartPutc('P');
+		uartPutc(':');
+		uartWriteUInt16(lastUsedTCNT1);
+		uartPutc(' ');
 		uartPutc('V');
 		uartPutc(':');
 		uartWriteUInt16(voltage);	
@@ -252,6 +269,9 @@ static void hardwareInit(void)
 	// set PC0 and PC2 as output
 	DDRC = _BV(PC0) | _BV(PC2);
 	PORTC = 0;
+	
+	TCNT1=0x00;
+	TCCR1B = (1<<CS12) | (1<<CS10);  // prescaler 1024
 	
 	GICR |= _BV(INT1);	/* enable INT1 */
 	MCUCR|= _BV(ISC11);
@@ -298,6 +318,20 @@ void checkForQuickDiff()
 	}
 }
 
+unsigned short isTCNT1InLimit()
+{
+	if (mMode == mMeasure)
+	{
+		//TCNT1MinSignalLimit = TCNT1_MIN_SIGNAL_LEN_DEF / 4 / minimumFrequencyCounter;
+		TCNT1MinSignalLimit = TCNT1_MIN_SIGNAL_LEN_DEF / 2 / minimumFrequencyCounter;
+		if (lastUsedTCNT1 < TCNT1MinSignalLimit)
+			return 0;	
+	}
+	
+	return 1;
+}	
+
+
 int main(void)  
 {
 	hardwareInit();
@@ -329,17 +363,22 @@ int main(void)
 			temp = lastSignalDetectorCounter;
 			lastSignalDetectorCounter = signalDetectorCounter;		
 			
-			checkForQuickDiff();
-			outSignalLimit = signalDetectorCounter/2;
-			adjustOutputSignal();					
+			//checkForQuickDiff();
+			if (isTCNT1InLimit())
+			{
+				// valid signal - recalculate
+				outSignalLimit = signalDetectorCounter/2;
+				adjustOutputSignal();					
 	
-			signalDetectorCounter=0;		
-			if (signalOutCounter>outSignalLimit)
-				{
-				signalOutCounter = 0;
-				needChange = 1;
-				}
-			}		
+				signalDetectorCounter=0;		
+				if (signalOutCounter>outSignalLimit)
+					{
+					signalOutCounter = 0;
+					needChange = 1;
+					}
+				}		
+			}
+			
 		}			
 		
 	return 1;
