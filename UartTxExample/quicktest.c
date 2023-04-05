@@ -1,6 +1,6 @@
 #define STRLEN 32
-#define F_CPU 1843200UL
-#define USART_BAUDRATE 115200
+#define F_CPU 16000000UL
+#define USART_BAUDRATE 19200
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
 
 #include <avr/io.h>
@@ -30,7 +30,12 @@ int main(void) {
   strcpy((char*)out, "world");
   sendstring();
   
-  while (1) { }
+  while (1) 
+	{
+		_delay_ms(1000);
+		strcpy((char*)out, "Ahoj kamarade ... \r\n");
+		sendstring();
+	}
 
   return 0;
 }
