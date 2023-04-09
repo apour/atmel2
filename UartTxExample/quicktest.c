@@ -1,4 +1,4 @@
-#define STRLEN 32
+#define BUF_LEN 32
 #define F_CPU 16000000UL
 #define USART_BAUDRATE 19200
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
@@ -10,7 +10,7 @@
 
 void sendstring(void);
 
-volatile char out[STRLEN];
+volatile char out[BUF_LEN];
 volatile unsigned int outp;
 
 volatile unsigned char tx_send;
@@ -24,27 +24,40 @@ int main(void) {
   
   tx_send = 0;
   
-  strcpy((char*)out, "Hello ");
-  sendstring();
-  while (tx_send == 1) { }
-  strcpy((char*)out, "world");
-  sendstring();
+  writeString("Hello ");
+  writeString("world");
   
   while (1) 
 	{
 		_delay_ms(1000);
-		strcpy((char*)out, "Ahoj kamarade ... \r\n");
-		sendstring();
+		writeString("Alexandr");
 	}
 
   return 0;
 }
 
-void sendstring() {
+void writeString(char* data)
+{
+  while (tx_send == 1) 
+  {
+	  // wait for send previous chars
+	  _delay_ms(1);  
+  }
+  strcpy(out, data);
+  sendstring();
+}
+
+void sendCurChar()
+{
+	if (out[outp] != '\0')
+		UDR = out[outp];
+	UCSRB |= (1<<UDRIE);
+}
+
+void sendstring() {  
   outp = 0;
   tx_send = 1;
-  UDR = out[outp];
-  UCSRB |= (1<<UDRIE);
+  sendCurChar();
 }
 
 ISR(USART_UDRE_vect) {
@@ -53,7 +66,25 @@ ISR(USART_UDRE_vect) {
     tx_send = 0;
   } else {
     outp++;
-    UDR = out[outp];
-    UCSRB |= (1<<UDRIE);
+	sendCurChar();
   }
+}
+
+void uartPutTxt(char *data)
+{
+	uint8_t len = strlen( (const char*) data);
+	if (len>BUF_LEN)
+	{
+		writeString("Problem");
+		return;
+	}		
+	writeString(data);
+}
+
+void uartOutDigit(uint8_t v)
+{
+	if (v<10)
+		uartPutc(v+0x30);
+	else 
+		uartPutc(v+0x41-10);
 }
