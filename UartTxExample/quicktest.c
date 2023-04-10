@@ -1,4 +1,4 @@
-#define BUF_LEN 32
+#define BUF_LEN 64
 #define F_CPU 16000000UL
 #define USART_BAUDRATE 19200
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
@@ -10,10 +10,17 @@
 
 void sendstring(void);
 
-volatile char out[BUF_LEN];
+char out[BUF_LEN];
 volatile unsigned int outp;
-
+volatile unsigned int inp;
 volatile unsigned char tx_send;
+
+void flush();
+void writeString(char* data);
+void uartPutTxt(char *data);
+void uartWriteUInt8(uint8_t v);
+void uartWriteUInt16(uint16_t v);
+void uartWriteUInt32(uint8_t* v);
 
 int main(void) {
   UCSRB |= (1 << TXEN); // enable tx
@@ -23,14 +30,35 @@ int main(void) {
   sei(); // enable interrupts
   
   tx_send = 0;
+  inp = 0;
   
   writeString("Hello ");
   writeString("world");
-  
+  // flush();
+
+  uint8_t idx=0;
+  uint16_t idx16=0;
+  uint32_t idx32=0;
   while (1) 
 	{
+    //idx32=0x12345678;
 		_delay_ms(1000);
-		writeString("Alexandr");
+    uartPutTxt("Test");
+    uartPutTxt("A: ");
+    uartWriteUInt8(idx);
+    uartPutTxt(" B: ");
+    uartWriteUInt16(idx16);
+    uartPutTxt(" C: ");
+    uartWriteUInt32(&idx32);
+    uartPutTxt(" Text after data");
+    uartPutTxt("\r\n");
+
+    //writeString("ahojda");
+		// uartPutTxt("Alexandr");
+    flush();
+    idx++;
+    idx16=idx<<1;
+    idx32=idx*idx16;
 	}
 
   return 0;
@@ -62,7 +90,7 @@ void sendstring() {
 
 ISR(USART_UDRE_vect) {
   UCSRB &= ~(1<<UDRIE);
-  if (out[outp] == '\0') {
+   if (out[outp] == '\0') {
     tx_send = 0;
   } else {
     outp++;
@@ -70,21 +98,73 @@ ISR(USART_UDRE_vect) {
   }
 }
 
+// use only following public functions
+void flush()
+{
+   out[inp] = '\0';
+   sendstring();
+   inp=0;  
+}
+
 void uartPutTxt(char *data)
 {
 	uint8_t len = strlen( (const char*) data);
-	if (len>BUF_LEN)
+	if (inp+len>BUF_LEN)
 	{
-		writeString("Problem");
+    out[inp] = '!'; inp++;
+    flush();
 		return;
 	}		
-	writeString(data);
+  while (*data != '\0')
+  {
+     out[inp] = *data;
+     data++;
+     inp++;
+  }
 }
 
 void uartOutDigit(uint8_t v)
 {
 	if (v<10)
-		uartPutc(v+0x30);
+		out[inp]=(v+0x30);
 	else 
-		uartPutc(v+0x41-10);
+		out[inp]=(v+0x41-10);
+    inp++;
 }
+
+void uartWriteUInt8(uint8_t v)
+{
+	uint8_t temp = v>>4;
+	uartOutDigit(temp);
+	temp = v&0xF;
+	uartOutDigit(temp);
+}	
+
+void uartWriteUInt16(uint16_t v)
+{
+	uint8_t hi = v>>8;
+	uartWriteUInt8(hi);
+	hi = v&0xFF;
+	uartWriteUInt8(hi);
+}	
+
+void uartWriteUInt32(uint8_t* v)
+{
+	v+=3;
+	uint8_t hi = *v;
+	uartWriteUInt8(hi);
+	v--;
+	
+	hi = *v;
+	uartWriteUInt8(hi);
+	v--;
+	
+	hi = *v;
+	uartWriteUInt8(hi);
+	v--;
+	
+	hi = *v;
+	uartWriteUInt8(hi);
+}	
+
+
