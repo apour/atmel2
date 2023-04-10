@@ -49,7 +49,8 @@ int main(void) {
     uartPutTxt(" B: ");
     uartWriteUInt16(idx16);
     uartPutTxt(" C: ");
-    uartWriteUInt32(&idx32);
+    uint8_t* p = (uint8_t*) &idx32;
+    uartWriteUInt32(p);
     uartPutTxt(" Text after data");
     uartPutTxt("\r\n");
 
