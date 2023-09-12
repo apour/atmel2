@@ -3,12 +3,11 @@
 #include "prj.h"
 
 #define CHANGE_MACHINE_STATE_INTERVAL   16 // 5s
-#define CHARGE_INTERVAL                 5 //75 // 75*8s -> 600s
-#define DISCHARGE_INTERVAL              3 // 20*8s -> 160s
-#define GRID_INTERVAL					3
+#define CHARGE_INTERVAL                 2 //75 // 75*8s -> 600s
+#define DISCHARGE_INTERVAL              1 // 20*8s -> 160s
+#define GRID_INTERVAL					1
 
 #define VOLTAGE_LIMIT                   703
-
 #define VOLTAGE_GRID_OFF                690
 #define VOLTAGE_GRID_ON					680
 
@@ -172,8 +171,13 @@ void processPossibleChangeState()
             }
             break;
         case Measure:
-            uart_sendString("Limit voltage - ");
+            uart_sendString("Stop charge limit - ");
             logVoltageLevel(VOLTAGE_LIMIT);
+			uart_sendString("Grid on limit - ");
+            logVoltageLevel(VOLTAGE_GRID_ON);
+			uart_sendString("Grid off limit - ");
+            logVoltageLevel(VOLTAGE_GRID_OFF);
+			
             _delay_ms(10);
             sum_voltage>>=4;
             uart_sendString("Sum voltage - ");
