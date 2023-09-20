@@ -7,9 +7,9 @@
 #define DISCHARGE_INTERVAL              1 // 20*8s -> 160s
 #define GRID_INTERVAL					1
 
-#define VOLTAGE_LIMIT                   703
-#define VOLTAGE_GRID_OFF                690
-#define VOLTAGE_GRID_ON					680
+#define VOLTAGE_LIMIT                   570
+#define VOLTAGE_GRID_OFF                507
+#define VOLTAGE_GRID_ON					459
 
 #define SETBIT(ADDRESS,BIT) (ADDRESS |= (1<<BIT))
 #define CLEARBIT(ADDRESS,BIT) (ADDRESS &= ~(1<<BIT))
@@ -34,50 +34,50 @@ void uart_endofline()
 
 void switchOffChargeRelay()
 {
-    if (relayChargeState == 0)
+    uart_sendString("SWITCH OFF CHARGE RELAY");
+    uart_endofline();
+	if (relayChargeState == 0)
     {
         return;
     }
     relayChargeState = 0;
     CLEARBIT(PORTB, 0);
-    uart_sendString("SWITCH OFF CHARGE RELAY");
-    uart_endofline();
 }
 
 void switchOnChargeRelay()
 {
+	uart_sendString("SWITCH ON CHARGE RELAY");
+    uart_endofline();
     if (relayChargeState == 1)
     {
         return;
     }
     relayChargeState = 1;
     SETBIT(PORTB, 0);
-    uart_sendString("SWITCH ON CHARGE RELAY");
-    uart_endofline();
 }
 
 void switchOffGridRelay()
 {
-    if (relayGridState == 0)
+    uart_sendString("SWITCH OFF GRID RELAY");
+    uart_endofline();
+	if (relayGridState == 0)
     {
         return;
     }
     relayGridState = 0;
     CLEARBIT(PORTB, 4);
-    uart_sendString("SWITCH OFF GRID RELAY");
-    uart_endofline();
 }
 
 void switchOnGridRelay()
 {
+    uart_sendString("SWITCH ON GRID RELAY");
+    uart_endofline();
     if (relayGridState == 1)
     {
         return;
     }
     relayGridState = 1;
     SETBIT(PORTB, 4);
-    uart_sendString("SWITCH ON GRID RELAY");
-    uart_endofline();
 }
 
 void changeMode(StateMachineMode mode)
@@ -165,7 +165,8 @@ void processPossibleChangeState()
             change_state_interval_counter++;
             if (change_state_interval_counter == CHARGE_INTERVAL)
             {
-                switchOnChargeRelay();
+                //switchOnChargeRelay();
+				switchOffGridRelay();
                 changeMode(Measure);
                 sum_voltage = 0;
             }
@@ -185,23 +186,39 @@ void processPossibleChangeState()
 			
 			if (prev_mode == Grid && sum_voltage > VOLTAGE_GRID_OFF)
 			{
+				switchOffGridRelay();
+				//switchOffChargeRelay();
 				changeMode(Charge);
+				
+				uart_sendString("A1");
+				uart_endofline();
 			}
 			if (sum_voltage < VOLTAGE_GRID_ON)
 			{
-				switchOnChargeRelay();
-				switchOffGridRelay();
+				//switchOnChargeRelay();
+				switchOnGridRelay();
 				changeMode(Grid);
+				
+				uart_sendString("A2");
+				uart_endofline();
 			} 
 			else if (sum_voltage > VOLTAGE_LIMIT)
             {
-                switchOnChargeRelay();
+                //switchOnChargeRelay();
+				switchOffGridRelay();
                 changeMode(DisCharge);
+				
+				uart_sendString("A3");
+				uart_endofline();
             }
             else
             {
-                switchOffChargeRelay();
+                //switchOffChargeRelay();
+				switchOffGridRelay();
                 changeMode(Charge);
+				
+				uart_sendString("A4");
+				uart_endofline();
             }
             change_state_interval_counter = 0;
             break;
