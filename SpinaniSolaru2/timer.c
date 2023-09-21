@@ -1,9 +1,10 @@
 // timer.c
 
 #include "prj.h"
+#define SIM_MEASURE
 
-#define CHANGE_MACHINE_STATE_INTERVAL   16 // 5s
-#define CHARGE_INTERVAL                 2 //75 // 75*8s -> 600s
+#define CHANGE_MACHINE_STATE_INTERVAL   6//16 // 5s
+#define CHARGE_INTERVAL                 1 //75 // 75*8s -> 600s
 #define DISCHARGE_INTERVAL              1 // 20*8s -> 160s
 #define GRID_INTERVAL					1
 
@@ -21,11 +22,16 @@ volatile unsigned int state_counter = 0;
 volatile unsigned int change_state_interval_counter = 0;
 
 unsigned int sum_voltage = 0;
-unsigned char relayChargeState = 0;
-unsigned char relayGridState = 0;
 unsigned char ledFlashMode = 0;
 extern StateMachineMode state_mode;
 extern StateMachineMode prev_mode;
+
+#ifdef SIM_MEASURE
+#define SIM_VOLTAGE_CNT  5
+unsigned char sim_voltage_idx = 0;
+unsigned int sim_voltage[SIM_VOLTAGE_CNT] = { 450, 550, 580, 560, 440 };			 
+#endif 		    			
+
 
 void uart_endofline()
 {
@@ -36,11 +42,6 @@ void switchOffChargeRelay()
 {
     uart_sendString("SWITCH OFF CHARGE RELAY");
     uart_endofline();
-	if (relayChargeState == 0)
-    {
-        return;
-    }
-    relayChargeState = 0;
     CLEARBIT(PORTB, 0);
 }
 
@@ -48,11 +49,6 @@ void switchOnChargeRelay()
 {
 	uart_sendString("SWITCH ON CHARGE RELAY");
     uart_endofline();
-    if (relayChargeState == 1)
-    {
-        return;
-    }
-    relayChargeState = 1;
     SETBIT(PORTB, 0);
 }
 
@@ -60,11 +56,6 @@ void switchOffGridRelay()
 {
     uart_sendString("SWITCH OFF GRID RELAY");
     uart_endofline();
-	if (relayGridState == 0)
-    {
-        return;
-    }
-    relayGridState = 0;
     CLEARBIT(PORTB, 4);
 }
 
@@ -72,11 +63,6 @@ void switchOnGridRelay()
 {
     uart_sendString("SWITCH ON GRID RELAY");
     uart_endofline();
-    if (relayGridState == 1)
-    {
-        return;
-    }
-    relayGridState = 1;
     SETBIT(PORTB, 4);
 }
 
@@ -91,22 +77,26 @@ void changeMode(StateMachineMode mode)
         case Charge:
             state_mode = Charge;
             SETBIT(PORTB,1);
-            SETBIT(PORTB,4);
+			switchOffGridRelay();
+			switchOffChargeRelay();
             break;
         case DisCharge:
             state_mode = DisCharge;
             SETBIT(PORTB,2);
-            SETBIT(PORTB,4);
+			switchOffGridRelay();
+			switchOnChargeRelay();
             break;
         case Measure:
             state_mode = Measure;
             SETBIT(PORTB,3);
-            CLEARBIT(PORTB, 4);
+			switchOffGridRelay();
+			switchOnChargeRelay();
             break;
 		case Grid:
 			state_mode = Grid;
 			SETBIT(PORTB, 1);
-			SETBIT(PORTB, 4);
+			switchOnGridRelay();
+			switchOffChargeRelay(); // brat taky ze slunicka, kdyz nabijim ze site ?
 			break;
         default:
             uart_sendString("M: NEVER GET HERE");
@@ -165,9 +155,7 @@ void processPossibleChangeState()
             change_state_interval_counter++;
             if (change_state_interval_counter == CHARGE_INTERVAL)
             {
-                //switchOnChargeRelay();
-				switchOffGridRelay();
-                changeMode(Measure);
+				changeMode(Measure);
                 sum_voltage = 0;
             }
             break;
@@ -181,13 +169,17 @@ void processPossibleChangeState()
 			
             _delay_ms(10);
             sum_voltage>>=4;
+#ifdef SIM_MEASURE
+			sum_voltage = sim_voltage[sim_voltage_idx];
+			sim_voltage_idx++;
+			if (sim_voltage_idx == SIM_VOLTAGE_CNT)
+				sim_voltage_idx = 0;
+#endif 		    			
             uart_sendString("Sum voltage - ");
             logVoltageLevel(sum_voltage);
 			
 			if (prev_mode == Grid && sum_voltage > VOLTAGE_GRID_OFF)
 			{
-				switchOffGridRelay();
-				//switchOffChargeRelay();
 				changeMode(Charge);
 				
 				uart_sendString("A1");
@@ -195,8 +187,6 @@ void processPossibleChangeState()
 			}
 			if (sum_voltage < VOLTAGE_GRID_ON)
 			{
-				//switchOnChargeRelay();
-				switchOnGridRelay();
 				changeMode(Grid);
 				
 				uart_sendString("A2");
@@ -204,18 +194,14 @@ void processPossibleChangeState()
 			} 
 			else if (sum_voltage > VOLTAGE_LIMIT)
             {
-                //switchOnChargeRelay();
-				switchOffGridRelay();
-                changeMode(DisCharge);
+            	changeMode(DisCharge);
 				
 				uart_sendString("A3");
 				uart_endofline();
             }
             else
             {
-                //switchOffChargeRelay();
-				switchOffGridRelay();
-                changeMode(Charge);
+            	changeMode(Charge);
 				
 				uart_sendString("A4");
 				uart_endofline();
@@ -226,7 +212,7 @@ void processPossibleChangeState()
             change_state_interval_counter++;
             if (change_state_interval_counter == DISCHARGE_INTERVAL)
             {
-                changeMode(Measure);
+				changeMode(Measure);
                 sum_voltage = 0;
             }
             break;
@@ -258,9 +244,8 @@ void Timer0_Init()
     state_counter = 0;
 
     changeMode(Measure);
-    relayChargeState = 0;
+	
     sum_voltage = 8*1024;
-    
     processPossibleChangeState();
 }
 
@@ -315,23 +300,33 @@ ISR (TIMER0_OVF_vect)
 		}
 		else
 		{
-			switch (ledFlashMode)
+			if (ledFlashMode == 0)
 			{
-				case 0:
-					SETBIT(PORTB,modeBit);
-					ledFlashMode++;
-					break;
-				case 1:
-					CLEARBIT(PORTB,modeBit);
-					ledFlashMode++;
-					break;
-				case 5:
-					ledFlashMode = 0;
-					break;
-				default:
-					ledFlashMode++;
-					break;					
+				SETBIT(PORTB, modeBit);
+				ledFlashMode = 1;
 			}
+			else
+			{
+				CLEARBIT(PORTB, modeBit);
+				ledFlashMode = 0;
+			}
+			//switch (ledFlashMode)
+			//{
+				//case 0:
+					//SETBIT(PORTB,modeBit);
+					//ledFlashMode++;
+					//break;
+				//case 1:
+					//CLEARBIT(PORTB,modeBit);
+					//ledFlashMode++;
+					//break;
+				//case 5:
+					//ledFlashMode = 0;
+					//break;
+				//default:
+					//ledFlashMode++;
+					//break;					
+			//}
 		}		
         logStateMode();
     }
