@@ -38,6 +38,21 @@ void uart_endofline()
     uart_sendString("\n\r");
 }
 
+void switchOffFan()
+{
+    uart_sendString("SWITCH OFF FAN");
+    uart_endofline();
+    CLEARBIT(PORTB, 5);
+}
+
+
+void switchOnFan()
+{
+	uart_sendString("SWITCH ON FAN");
+    uart_endofline();
+    SETBIT(PORTB, 5);
+}
+
 void switchOffChargeRelay()
 {
     uart_sendString("SWITCH OFF CHARGE RELAY");
@@ -79,24 +94,28 @@ void changeMode(StateMachineMode mode)
             SETBIT(PORTB,1);
 			switchOffGridRelay();
 			switchOffChargeRelay();
+			switchOffFan();
             break;
         case DisCharge:
             state_mode = DisCharge;
             SETBIT(PORTB,2);
 			switchOffGridRelay();
 			switchOnChargeRelay();
+			switchOnFan();
             break;
         case Measure:
             state_mode = Measure;
             SETBIT(PORTB,3);
 			switchOffGridRelay();
 			switchOnChargeRelay();
+			switchOnFan();
             break;
 		case Grid:
 			state_mode = Grid;
 			SETBIT(PORTB, 1);
 			switchOnGridRelay();
 			switchOffChargeRelay(); // brat taky ze slunicka, kdyz nabijim ze site ?
+			switchOnFan();
 			break;
         default:
             uart_sendString("M: NEVER GET HERE");
@@ -310,23 +329,6 @@ ISR (TIMER0_OVF_vect)
 				CLEARBIT(PORTB, modeBit);
 				ledFlashMode = 0;
 			}
-			//switch (ledFlashMode)
-			//{
-				//case 0:
-					//SETBIT(PORTB,modeBit);
-					//ledFlashMode++;
-					//break;
-				//case 1:
-					//CLEARBIT(PORTB,modeBit);
-					//ledFlashMode++;
-					//break;
-				//case 5:
-					//ledFlashMode = 0;
-					//break;
-				//default:
-					//ledFlashMode++;
-					//break;					
-			//}
 		}		
         logStateMode();
     }
