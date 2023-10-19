@@ -1,16 +1,25 @@
 // timer.c
 
 #include "prj.h"
-#define SIM_MEASURE
+//#define SIM_MEASURE
 
+#ifdef SIM_MEASURE
 #define CHANGE_MACHINE_STATE_INTERVAL   6//16 // 5s
 #define CHARGE_INTERVAL                 1 //75 // 75*8s -> 600s
 #define DISCHARGE_INTERVAL              1 // 20*8s -> 160s
 #define GRID_INTERVAL					1
+#else
+#define CHANGE_MACHINE_STATE_INTERVAL   16//16 // 5s
+#define CHARGE_INTERVAL                 5 //75 // 75*8s -> 600s
+#define DISCHARGE_INTERVAL              3 // 20*8s -> 160s
+#define GRID_INTERVAL					2
+#endif
 
-#define VOLTAGE_LIMIT                   570
-#define VOLTAGE_GRID_OFF                507
-#define VOLTAGE_GRID_ON					459
+
+#define VOLTAGE_LIMIT                   565 // 13.2 V
+#define VOLTAGE_GRID_OFF                494	// 11.7 V
+#define VOLTAGE_GRID_ON					456 // 10.8 V
+
 
 #define SETBIT(ADDRESS,BIT) (ADDRESS |= (1<<BIT))
 #define CLEARBIT(ADDRESS,BIT) (ADDRESS &= ~(1<<BIT))
