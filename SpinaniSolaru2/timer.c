@@ -15,6 +15,17 @@
 #define GRID_INTERVAL					2
 #endif
 
+// relay pins
+#define CHARGE_PIN						0
+#define GRID_PIN						4
+
+// fan pin
+#define FAN_PIN							5
+
+// LED indicator pins
+#define CHARGE_LED_PIN					1
+#define DISCHARGE_LED_PIN				2
+#define MEASURE_LED_PIN					3
 
 #define VOLTAGE_LIMIT                   565 // 13.2 V
 #define VOLTAGE_GRID_OFF                494	// 11.7 V
@@ -51,7 +62,7 @@ void switchOffFan()
 {
     uart_sendString("SWITCH OFF FAN");
     uart_endofline();
-    CLEARBIT(PORTB, 5);
+    CLEARBIT(PORTB, FAN_PIN);
 }
 
 
@@ -59,69 +70,69 @@ void switchOnFan()
 {
 	uart_sendString("SWITCH ON FAN");
     uart_endofline();
-    SETBIT(PORTB, 5);
+    SETBIT(PORTB, FAN_PIN);
 }
 
 void switchOffChargeRelay()
 {
     uart_sendString("SWITCH OFF CHARGE RELAY");
     uart_endofline();
-    CLEARBIT(PORTB, 0);
+    CLEARBIT(PORTB, CHARGE_PIN);
 }
 
 void switchOnChargeRelay()
 {
 	uart_sendString("SWITCH ON CHARGE RELAY");
     uart_endofline();
-    SETBIT(PORTB, 0);
+    SETBIT(PORTB, CHARGE_PIN);
 }
 
 void switchOffGridRelay()
 {
     uart_sendString("SWITCH OFF GRID RELAY");
     uart_endofline();
-    CLEARBIT(PORTB, 4);
+    CLEARBIT(PORTB, GRID_PIN);
 }
 
 void switchOnGridRelay()
 {
     uart_sendString("SWITCH ON GRID RELAY");
     uart_endofline();
-    SETBIT(PORTB, 4);
+    SETBIT(PORTB, GRID_PIN);
 }
 
 void changeMode(StateMachineMode mode)
 {
 	prev_mode = mode;
-    CLEARBIT(PORTB, 1);
-    CLEARBIT(PORTB, 2);
-    CLEARBIT(PORTB, 3);
+    CLEARBIT(PORTB, CHARGE_LED_PIN);
+    CLEARBIT(PORTB, DISCHARGE_LED_PIN);
+    CLEARBIT(PORTB, MEASURE_LED_PIN);
     switch (mode)
     {
         case Charge:
             state_mode = Charge;
-            SETBIT(PORTB,1);
+            SETBIT(PORTB, CHARGE_LED_PIN);
 			switchOffGridRelay();
 			switchOffChargeRelay();
 			switchOffFan();
             break;
         case DisCharge:
             state_mode = DisCharge;
-            SETBIT(PORTB,2);
+            SETBIT(PORTB, DISCHARGE_LED_PIN);
 			switchOffGridRelay();
 			switchOnChargeRelay();
 			switchOnFan();
             break;
         case Measure:
             state_mode = Measure;
-            SETBIT(PORTB,3);
+            SETBIT(PORTB, MEASURE_LED_PIN);
 			switchOffGridRelay();
 			switchOnChargeRelay();
 			switchOnFan();
             break;
 		case Grid:
 			state_mode = Grid;
-			SETBIT(PORTB, 1);
+			SETBIT(PORTB, CHARGE_LED_PIN);
 			switchOnGridRelay();
 			switchOffChargeRelay(); // brat taky ze slunicka, kdyz nabijim ze site ?
 			switchOnFan();
@@ -309,16 +320,16 @@ ISR (TIMER0_OVF_vect)
 		switch (state_mode)
 		{
 			case Charge:
-				modeBit = 1;
+				modeBit = CHARGE_LED_PIN;
 				break;
 			case DisCharge:
-				modeBit = 2;
+				modeBit = DISCHARGE_LED_PIN;
 				break;
 			case Measure:
-				modeBit = 3;
+				modeBit = MEASURE_LED_PIN;
 				break;
 			case Grid:
-				modeBit = 1;
+				modeBit = CHARGE_LED_PIN;
 				break;
 		}
 		
