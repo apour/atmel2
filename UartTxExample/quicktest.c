@@ -1,6 +1,6 @@
 #define BUF_LEN 64
-#define F_CPU 16000000UL
-#define USART_BAUDRATE 19200
+#define F_CPU 12000000UL
+#define USART_BAUDRATE 1200
 #define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
 
 #include <avr/io.h>
@@ -14,6 +14,8 @@ char out[BUF_LEN];
 volatile unsigned int outp;
 volatile unsigned int inp;
 volatile unsigned char tx_send;
+volatile unsigned int receivedCompleted;
+unsigned char rxByte;
 
 void flush();
 void writeString(char* data);
@@ -23,10 +25,13 @@ void uartWriteUInt16(uint16_t v);
 void uartWriteUInt32(uint8_t* v);
 
 int main(void) {
-  UCSRB |= (1 << TXEN); // enable tx
+  UCSRB |= (1 << TXEN) | (1 << RXEN)| (1 << TXCIE) | (1 << RXCIE); // enable tx, rx
   UBRRH = (BAUD_PRESCALE >> 8); // set baud
   UBRRL = BAUD_PRESCALE;
-  
+  UCSRC=(1<<URSEL)|(0<<UMSEL)|(0<<UPM1)|(0<<UPM0)|
+        (0<<USBS)|(0<<UCSZ2)|(1<<UCSZ1)|(1<<UCSZ0); 
+  receivedCompleted = 0;
+
   sei(); // enable interrupts
   
   tx_send = 0;
@@ -34,15 +39,20 @@ int main(void) {
   
   writeString("Hello ");
   writeString("world");
-  // flush();
 
   uint8_t idx=0;
   uint16_t idx16=0;
   uint32_t idx32=0;
   while (1) 
 	{
-    //idx32=0x12345678;
 		_delay_ms(1000);
+    if (receivedCompleted>0)
+    {
+      uartPutTxt("R: ");  
+      uartWriteUInt8(rxByte);
+      uartWriteUInt16(receivedCompleted);
+      receivedCompleted = 0;
+    }
     uartPutTxt("Test");
     uartPutTxt("A: ");
     uartWriteUInt8(idx);
@@ -54,8 +64,6 @@ int main(void) {
     uartPutTxt(" Text after data");
     uartPutTxt("\r\n");
 
-    //writeString("ahojda");
-		// uartPutTxt("Alexandr");
     flush();
     idx++;
     idx16=idx<<1;
@@ -97,6 +105,18 @@ ISR(USART_UDRE_vect) {
     outp++;
 	sendCurChar();
   }
+}
+
+ISR(USART_TXC_vect)
+{
+
+}
+
+ISR(USART_RXC_vect)
+{
+	rxByte = UDR;
+  UCSRA&=(1<<RXC); 
+  receivedCompleted++;
 }
 
 // use only following public functions
@@ -159,7 +179,7 @@ void uartWriteUInt32(uint8_t* v)
 	hi = *v;
 	uartWriteUInt8(hi);
 	v--;
-	
+
 	hi = *v;
 	uartWriteUInt8(hi);
 	v--;
