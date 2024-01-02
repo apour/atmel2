@@ -31,6 +31,11 @@ enum receiveState
   tChargeOffLimit = 5
 } rxState;
 
+// limit's values
+unsigned int gridOffLimit;
+unsigned int gridOnLimit;
+unsigned int changeOffLimit;
+
 void flush();
 void writeString(char* data);
 void uartPutTxt(char *data);
@@ -43,11 +48,11 @@ void WriteToEEPROM(unsigned int value, uint16_t address)
     eeprom_write_word((uint16_t*)address, value);
     }
 
-// unsigned int ReadEEPROM(unsigned int address)
-//     {
-//     unsigned int temp = eeprom_read_word((unsigned char*)address);
-//     return temp;
-//     }
+unsigned int ReadEEPROM(unsigned int address)
+    {
+    unsigned int temp = eeprom_read_word((uint16_t*)address);
+    return temp;
+    }
 
 unsigned int getValueFromRxBuffer()
   {
@@ -74,9 +79,30 @@ int main(void) {
   
   tx_send = 0;
   inp = 0;
-  
-  writeString("Hello ");
-  writeString("world");
+
+  gridOnLimit = ReadEEPROM(2);
+  gridOffLimit = ReadEEPROM(4);
+  changeOffLimit = ReadEEPROM(6);
+
+  uartPutTxt("Limits: ");
+  _delay_ms(100);
+  uartPutTxt("GridOn: ");
+  _delay_ms(100);
+  uartWriteUInt16(gridOnLimit);
+  uartPutTxt("\r\n");
+  _delay_ms(500);
+
+  uartPutTxt("GridOff: ");
+  _delay_ms(100);
+  uartWriteUInt16(gridOffLimit);
+  uartPutTxt("\r\n");
+  _delay_ms(500);
+
+  uartPutTxt("ChargeOff: ");
+  _delay_ms(100);
+  uartWriteUInt16(changeOffLimit);
+  uartPutTxt("\r\n");
+  _delay_ms(500);
 
   uint8_t idx=0;
   uint16_t idx16=0;
