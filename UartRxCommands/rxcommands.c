@@ -8,6 +8,7 @@
 #include <avr/interrupt.h>
 #include <string.h>
 #include <util/delay.h>
+#include <avr/eeprom.h>
 
 void sendstring(void);
 
@@ -37,6 +38,27 @@ void uartWriteUInt8(uint8_t v);
 void uartWriteUInt16(uint16_t v);
 void uartWriteUInt32(uint8_t* v);
 
+void WriteToEEPROM(unsigned int value, uint16_t address)
+    {   
+    eeprom_write_word((uint16_t*)address, value);
+    }
+
+// unsigned int ReadEEPROM(unsigned int address)
+//     {
+//     unsigned int temp = eeprom_read_word((unsigned char*)address);
+//     return temp;
+//     }
+
+unsigned int getValueFromRxBuffer()
+  {
+  unsigned int res = 0;
+  res = (rxBuffer[1] - 0x30) * 100;
+  res+= (rxBuffer[2] - 0x30) * 10;
+  res+= (rxBuffer[3] - 0x30);
+  return res;
+  }
+
+
 int main(void) {
   UCSRB |= (1 << TXEN) | (1 << RXEN)| (1 << TXCIE) | (1 << RXCIE); // enable tx, rx
   UBRRH = (BAUD_PRESCALE >> 8); // set baud
@@ -63,10 +85,6 @@ int main(void) {
 	{
 		_delay_ms(1000);
     PORTB=0xFF;
-    if (rxState == tHelp)
-    {
-      //uartPutTxt("Help");
-    }
     // if (rxByteCount>0)
     // {
     //   uartPutTxt("R: ");  
@@ -98,10 +116,31 @@ int main(void) {
         uartPutTxt("GridOnLimit");
         if (rxByteCount == 4)
         {
-          tempInt = (rxBuffer[1] - 0x30) * 100;
-          tempInt+= (rxBuffer[2] - 0x30) * 10;
-          tempInt+= (rxBuffer[3] - 0x30);
+          tempInt = getValueFromRxBuffer();
           uartWriteUInt16(tempInt);
+          WriteToEEPROM(tempInt, 2);
+        }
+        rxByteCount = 0;
+        rxState = tIdle;
+        break;
+      case tGridOffLimit:
+        uartPutTxt("GridOffLimit");
+        if (rxByteCount == 4)
+        {
+          tempInt = getValueFromRxBuffer();
+          uartWriteUInt16(tempInt);
+          WriteToEEPROM(tempInt, 4);
+        }
+        rxByteCount = 0;
+        rxState = tIdle;
+        break;
+      case tChargeOffLimit:
+        uartPutTxt("ChargeOffLimit");
+        if (rxByteCount == 4)
+        {
+          tempInt = getValueFromRxBuffer();
+          uartWriteUInt16(tempInt);
+          WriteToEEPROM(tempInt, 6);
         }
         rxByteCount = 0;
         rxState = tIdle;
@@ -174,13 +213,23 @@ ISR(USART_RXC_vect)
   switch (rxState)
   {
     case tIdle:
-      if (rxByte == 'A')
+      if (rxByte == '?')
       {
         rxState = tHelp;
       }
-      if (rxByte == 'G')
+      else if (rxByte == 'G')
       {
         rxState = tGridOnLimit;
+        rxBuffer[rxByteCount] = rxByte;
+      }
+      else if (rxByte == 'H')
+      {
+        rxState = tGridOffLimit;
+        rxBuffer[rxByteCount] = rxByte;
+      } 
+      else if (rxByte == 'D')
+      {
+        rxState = tChargeOffLimit;
         rxBuffer[rxByteCount] = rxByte;
       }
       else
@@ -189,6 +238,8 @@ ISR(USART_RXC_vect)
       }
       break;
     case tGridOnLimit:
+    case tGridOffLimit:
+    case tChargeOffLimit:
       if (rxByte < '0' || rxByte > '9')
       {
         rxState = tUnknownCommand;
