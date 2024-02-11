@@ -1,71 +1,125 @@
-// uart.c
+#define F_CPU 12000000UL
 
-#include "prj.h"
+#include "uart.h"
+#include <string.h>
+#include <util/delay.h>
+#include <avr/interrupt.h>
 
+#define BUF_LEN 64
+#define USART_BAUDRATE 1200
+#define BAUD_PRESCALE (((F_CPU / (USART_BAUDRATE * 16UL))) - 1)
 
-//#define UART_SPEED	9600
-#define UART_SPEED	1200
+char out[BUF_LEN];
+volatile unsigned char tx_send;
+volatile unsigned int outp;
+volatile unsigned int inp;
 
-#ifdef __AVR_ATmega8__
-// for AT MEGA 8
-#define  ODDBG_UBRR  UBRRL
-#define  ODDBG_UCR   UCSRB
-#define  ODDBG_TXEN  TXEN
-#define  ODDBG_USR   UCSRA
-#define  ODDBG_UDRE  UDRE
-#define  ODDBG_UDR   UDR
-#endif
+void uart_init()
+	{
+    UCSRB |= (1 << TXEN) | (1 << RXEN)| (1 << TXCIE) | (1 << RXCIE); // enable tx, rx
+    UBRRH = (BAUD_PRESCALE >> 8); // set baud
+    UBRRL = BAUD_PRESCALE;
+    UCSRC=(1<<URSEL)|(0<<UMSEL)|(0<<UPM1)|(0<<UPM0)|
+        (0<<USBS)|(0<<UCSZ2)|(1<<UCSZ1)|(1<<UCSZ0); 
+    tx_send = 0;
+    inp = 0;
+	}
 
-void uart_init() 
-{
-    // fosc = 8000000 Hz 
-    // baud=9600, actual_baud=9615,4, err=0,2 %
-    // UBRRL = 0x33; 
-    // UBRRH = 0x00;
+void sendCurChar()
+	{
+	if (out[outp] != '\0')
+		UDR = out[outp];
+	UCSRB |= (1<<UDRIE);
+	}
+
+void sendstring() 
+	{  
+  	outp = 0;
+  	tx_send = 1;
+  	sendCurChar();
+	}
+
+ISR(USART_UDRE_vect) 
+	{
+	UCSRB &= ~(1<<UDRIE);
+   	if (out[outp] == '\0') 
+		{
+    	tx_send = 0;
+  		} 
+	else 
+		{
+    	outp++;
+		sendCurChar();
+  		}
+	}
+
+// use only following public functions
+void uart_flush()
+	{
+   	out[inp] = '\0';
+   	sendstring();
+   	inp=0;  
+	}
+
+void uartPutTxt(char *data)
+	{
+	uint8_t len = strlen( (const char*) data);
+	if (inp+len>BUF_LEN)
+		{
+    	out[inp] = '!'; inp++;
+    	uart_flush();
+		return;
+		}		
+  	while (*data != '\0')
+  	{
+    	out[inp] = *data;
+     	data++;
+     	inp++;
+  	}
+	}
+
+void uartOutDigit(uint8_t v)
+	{
+	if (v<10)
+		out[inp]=(v+0x30);
+	else 
+		out[inp]=(v+0x41-10);
+    inp++;
+	}
+
+void uartWriteUInt8(uint8_t v)
+	{
+	uint8_t temp = v>>4;
+	uartOutDigit(temp);
+	temp = v&0xF;
+	uartOutDigit(temp);
+	}	
+
+void uartWriteUInt16(uint16_t v)
+	{
+	uint8_t hi = v>>8;
+	uartWriteUInt8(hi);
+	hi = v&0xFF;
+	uartWriteUInt8(hi);
+	}	
+
+void uartWriteUInt32(uint8_t* v)
+	{
+	v+=3;
+	uint8_t hi = *v;
+	uartWriteUInt8(hi);
+	v--;
 	
-	// fosc = 12000000 Hz 
-    // baud=9600, actual_baud=9615,4, err=0,2 %
-    //UBRRL = 0x4D; 
-    //UBRRH = 0x00; 
-   //
-    //// enable uart N81  
-    //UCSRB =  _BV(RXEN) | _BV(TXEN) ;
-    //UCSRC = _BV(URSEL) | _BV(UCSZ1) | _BV(UCSZ0);
-   //
-    ODDBG_UCR |= (1<<ODDBG_TXEN);
-	ODDBG_UBRR = F_CPU / (UART_SPEED * 16L) - 1;
-}
+	hi = *v;
+	uartWriteUInt8(hi);
+	v--;
 
-void uart_send_char(unsigned char ch)
-{
-   UDR = ch;
+	hi = *v;
+	uartWriteUInt8(hi);
+	v--;
+	
+	hi = *v;
+	uartWriteUInt8(hi);
+	}	
 
-   /* Wait for empty transmit buffer */
-   while (! (UCSRA & _BV(UDRE)) );
-
-}
-
-void uart_sendString(char *s)
-{
-   unsigned int i=0;
-   while (s[i] != '\x0') 
-   {
-       uart_send_char(s[i++]);
-    };
-}
-
-void  uart_send_hex(unsigned char ch)
-{
-    unsigned char i,temp;
-     
-    for (i=0; i<2; i++)
-    {
-        temp = (ch & 0xF0)>>4;
-        if ( temp <= 9)
-            uart_send_char ( '0' + temp);
-        else
-            uart_send_char(  'A' + temp - 10);
-        ch = ch << 4;    
-     }   
-}
 

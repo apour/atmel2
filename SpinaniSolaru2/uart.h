@@ -1,11 +1,15 @@
 #ifndef _UART_H
 #define _UART_H
 
-#include "prj.h"
+#include <avr/io.h>
 
-void uart_init(); 
-void uart_send_char(unsigned char ch); 
-void uart_sendString(char *s); 
-void uart_send_hex(unsigned char ch); 
+void uart_init();
+void uartPutTxt(char *data);
+void uartWriteUInt8(uint8_t v);
+void uartWriteUInt16(uint16_t v);
+void uartWriteUInt32(uint8_t* v);
+void uart_flush();
+//void sendstring();
+
 
 #endif 

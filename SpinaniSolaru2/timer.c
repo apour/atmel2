@@ -1,7 +1,9 @@
 // timer.c
 
 #include "prj.h"
+#include <stdlib.h>
 //#define SIM_MEASURE
+
 
 #ifdef SIM_MEASURE
 #define CHANGE_MACHINE_STATE_INTERVAL   6//16 // 5s
@@ -14,6 +16,9 @@
 #define DISCHARGE_INTERVAL              3 // 20*8s -> 160s
 #define GRID_INTERVAL					2
 #endif
+
+#define TIMER0_1_SECOND                 256 - 244   // timer for 1S in CPU 12Mhz
+#define TIMER0_1_SECOND_REPEAT_CNT      64
 
 // relay pins
 #define CHARGE_PIN						0
@@ -43,8 +48,8 @@ volatile unsigned int change_state_interval_counter = 0;
 
 unsigned int sum_voltage = 0;
 unsigned char ledFlashMode = 0;
-extern StateMachineMode state_mode;
-extern StateMachineMode prev_mode;
+StateMachineMode state_mode;
+StateMachineMode prev_mode;
 
 #ifdef SIM_MEASURE
 #define SIM_VOLTAGE_CNT  5
@@ -55,12 +60,12 @@ unsigned int sim_voltage[SIM_VOLTAGE_CNT] = { 450, 550, 580, 560, 440 };
 
 void uart_endofline()
 {
-    uart_sendString("\n\r");
+    uartPutTxt("\n\r");
 }
 
 void switchOffFan()
 {
-    uart_sendString("SWITCH OFF FAN");
+    uartPutTxt("SWITCH OFF FAN");
     uart_endofline();
     CLEARBIT(PORTB, FAN_PIN);
 }
@@ -68,35 +73,35 @@ void switchOffFan()
 
 void switchOnFan()
 {
-	uart_sendString("SWITCH ON FAN");
+	uartPutTxt("SWITCH ON FAN");
     uart_endofline();
     SETBIT(PORTB, FAN_PIN);
 }
 
 void switchOffChargeRelay()
 {
-    uart_sendString("SWITCH OFF CHARGE RELAY");
+    uartPutTxt("SWITCH OFF CHARGE RELAY");
     uart_endofline();
     CLEARBIT(PORTB, CHARGE_PIN);
 }
 
 void switchOnChargeRelay()
 {
-	uart_sendString("SWITCH ON CHARGE RELAY");
+	uartPutTxt("SWITCH ON CHARGE RELAY");
     uart_endofline();
     SETBIT(PORTB, CHARGE_PIN);
 }
 
 void switchOffGridRelay()
 {
-    uart_sendString("SWITCH OFF GRID RELAY");
+    uartPutTxt("SWITCH OFF GRID RELAY");
     uart_endofline();
     CLEARBIT(PORTB, GRID_PIN);
 }
 
 void switchOnGridRelay()
 {
-    uart_sendString("SWITCH ON GRID RELAY");
+    uartPutTxt("SWITCH ON GRID RELAY");
     uart_endofline();
     SETBIT(PORTB, GRID_PIN);
 }
@@ -138,7 +143,7 @@ void changeMode(StateMachineMode mode)
 			switchOnFan();
 			break;
         default:
-            uart_sendString("M: NEVER GET HERE");
+            uartPutTxt("M: NEVER GET HERE");
             break;
     }
 }
@@ -147,30 +152,30 @@ void logStateMode()
 {
     char buf[5];
     itoa(change_state_interval_counter, buf, 10);
-    uart_sendString(buf);
-    uart_send_char('/');
+    uartPutTxt(buf);
+    uartPutTxt("/");
     _delay_ms(1);
 
     switch (state_mode)
     {
         case Charge:
             itoa(CHARGE_INTERVAL, buf, 10);                       
-            uart_sendString(buf);
-            uart_sendString("-C: ");
+            uartPutTxt(buf);
+            uartPutTxt("-C: ");
             break;
         case DisCharge:
             itoa(DISCHARGE_INTERVAL, buf, 10);                       
-            uart_sendString(buf);
-            uart_sendString("-D: ");
+            uartPutTxt(buf);
+            uartPutTxt("-D: ");
             break;
         case Measure:
-            uart_sendString("-M: ");
+            uartPutTxt("-M: ");
             break;
 		case Grid:
-			uart_sendString("-G: ");
+			uartPutTxt("-G: ");
 			break;
         default:
-            uart_sendString("M: NEVER GET HERE");
+            uartPutTxt("M: NEVER GET HERE");
             break;
     }
     _delay_ms(1);
@@ -180,9 +185,9 @@ void logStateMode()
 void logVoltageLevel(unsigned int value)
 {
     char buf[16];
-    uart_sendString("V: ");
+    uartPutTxt("V: ");
     itoa(value, buf, 10);
-    uart_sendString(buf);
+    uartPutTxt(buf);
     uart_endofline();
 }
 
@@ -199,11 +204,11 @@ void processPossibleChangeState()
             }
             break;
         case Measure:
-            uart_sendString("Stop charge limit - ");
+            uartPutTxt("Stop charge limit - ");
             logVoltageLevel(VOLTAGE_LIMIT);
-			uart_sendString("Grid on limit - ");
+			uartPutTxt("Grid on limit - ");
             logVoltageLevel(VOLTAGE_GRID_ON);
-			uart_sendString("Grid off limit - ");
+			uartPutTxt("Grid off limit - ");
             logVoltageLevel(VOLTAGE_GRID_OFF);
 			
             _delay_ms(10);
@@ -214,35 +219,35 @@ void processPossibleChangeState()
 			if (sim_voltage_idx == SIM_VOLTAGE_CNT)
 				sim_voltage_idx = 0;
 #endif 		    			
-            uart_sendString("Sum voltage - ");
+            uartPutTxt("Sum voltage - ");
             logVoltageLevel(sum_voltage);
 			
 			if (prev_mode == Grid && sum_voltage > VOLTAGE_GRID_OFF)
 			{
 				changeMode(Charge);
 				
-				uart_sendString("A1");
+				uartPutTxt("A1");
 				uart_endofline();
 			}
 			if (sum_voltage < VOLTAGE_GRID_ON)
 			{
 				changeMode(Grid);
 				
-				uart_sendString("A2");
+				uartPutTxt("A2");
 				uart_endofline();
 			} 
 			else if (sum_voltage > VOLTAGE_LIMIT)
             {
             	changeMode(DisCharge);
 				
-				uart_sendString("A3");
+				uartPutTxt("A3");
 				uart_endofline();
             }
             else
             {
             	changeMode(Charge);
 				
-				uart_sendString("A4");
+				uartPutTxt("A4");
 				uart_endofline();
             }
             change_state_interval_counter = 0;
@@ -264,19 +269,19 @@ void processPossibleChangeState()
 			}
 			break;				
         default:
-            uart_sendString("NEVER GET HERE");
+            uartPutTxt("NEVER GET HERE");
             break;
     }
 }
 
 
 
-// Timer 0  timeout= 1,000 s, fosc = 1,0000 MHz 
+// Timer 0  timeout= 1,000 s, fosc = 12,0000 MHz 
 //=========================================
 void Timer0_Init()
 {
     TCCR0 = 0x05; // divider 1024
-	TCNT0 = 256 - 244;  
+	TCNT0 = TIMER0_1_SECOND;  
     TIMSK |= _BV(TOIE0); 
 
     change_state_interval_counter = 0; 
@@ -290,12 +295,19 @@ void Timer0_Init()
 
 
 // Timer 0 interrupt service routine 
-// timeout 1,000 s , fosc = 1,0000 MHz 
+// timeout 1,000 s , fosc = 12,0000 MHz 
 //====================================
 ISR (TIMER0_OVF_vect)
 {
-	TCNT0 = 256 - 244;  
-    if (++repeat_cnt0 == 4) 
+	TCNT0 = TIMER0_1_SECOND;  
+    // test for 1 S
+    // if (++repeat_cnt0 == TIMER0_1_SECOND_REPEAT_CNT) 
+    //     {
+    //     repeat_cnt0 = 0; 
+    //     uartPutTxt("A");
+    //     uart_flush();
+    //     }
+    if (++repeat_cnt0 == TIMER0_1_SECOND_REPEAT_CNT) 
     {
         repeat_cnt0 = 0; 
         // write your code 

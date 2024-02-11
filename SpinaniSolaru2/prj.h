@@ -1,7 +1,7 @@
 #ifndef _PRJ_H
 #define _PRJ_H
 
-#define F_CPU 1000000UL    
+#define F_CPU 12000000UL    
 #include <avr/io.h> 
 #include <avr/sfr_defs.h> 
 #include <util/delay.h> 
