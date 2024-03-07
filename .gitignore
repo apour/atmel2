@@ -1,0 +1,17 @@
+# Global Ignores - OK
+
+bin/
+binDump*
+obj/
+.vs/
+.synclog
+.syncerr
+*.user
+*.orig
+*.hex
+*.lst
+*.elf
+*.bin
+*.o
+*.map
+**/.idea/
