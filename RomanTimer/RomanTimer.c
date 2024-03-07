@@ -4,7 +4,7 @@
 
 /******************************************************************
   Project     : Roman Timer
-  It switch relay on PORT B PIN1 for 20s after positive
+  It switch relay on PORTB PIN1 for 20s after positive
   inpuls on PIN0. Next start can be only after negative 
   on PIN0. PIN2 is output for LED status.
 
@@ -30,6 +30,26 @@ void init()
     state_mode = WaitForStart;
 } 
 
+void switchOnRelay()
+{
+    PORTB|= 0x02;
+}
+
+void switchOffRelay()
+{
+    PORTB&=~0x02;
+}
+
+void switchOnLed()
+{
+    PORTB|= 0x04;
+}
+
+void switchOffLed()
+{
+    PORTB&=~0x04;
+}
+
 int main()
 {
     // define variables
@@ -44,8 +64,8 @@ int main()
                 {
                     state_mode = Starting;
                     // begin starting
-                    PORTB|= 0x02;
-                    PORTB|= 0x04;
+                    switchOnRelay();
+                    switchOnLed();
                     _timer = 0;
                 }
                 break;
@@ -54,8 +74,8 @@ int main()
                 if (_timer == TIMER_LIMIT)
                 {
                     // end starting
-                    PORTB&=~0x02;
-                    PORTB&=~0x04;
+                    switchOffRelay();
+                    switchOffLed();
                     state_mode = WaitForStop; 
                 }
                 break;
@@ -67,9 +87,9 @@ int main()
                 }
 
                 if (_timer == 0)
-                    PORTB&=~0x04;
+                    switchOffLed();
                 else if (_timer == 5)
-                    PORTB|=0x04;
+                    switchOnLed();
                 
                 _timer++;
                 if (_timer == 10)
