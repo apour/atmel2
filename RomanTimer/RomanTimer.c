@@ -1,6 +1,7 @@
 // main.c
 
 #include <avr/io.h>
+#include <util/delay.h> 
 
 /******************************************************************
   Project     : Roman Timer
@@ -23,10 +24,11 @@ typedef enum {
 
 StateMachineMode state_mode;
 unsigned short _timer;
+unsigned short temp;
 
 void init()
 { 
-    DDRB = 0x02;    // PIN0 input, PIN1 output
+    DDRB = 0b00000110;    // PIN0 input, PIN1 output
     state_mode = WaitForStart;
 } 
 
@@ -57,10 +59,11 @@ int main()
 
     while(1)
     {
+		_delay_ms(100);
         switch (state_mode) 
         {
             case WaitForStart:
-                if (PORTB & 0x1 == 1)   // positive signal on PIN0
+                if (PINB & 0x1 == 1)   // positive signal on PIN0
                 {
                     state_mode = Starting;
                     // begin starting
@@ -77,13 +80,17 @@ int main()
                     switchOffRelay();
                     switchOffLed();
                     state_mode = WaitForStop; 
+					_timer = 0;
                 }
                 break;
             case WaitForStop:
-                if (PINB&0x01 == 0) // negative signal on PIN0
+				temp = PINB&0x01;			    
+                if ((PINB&0x01) == 0) // negative signal on PIN0
                 {
                     _timer = 0;
                     state_mode = WaitForStart;
+					switchOffLed();
+					break;
                 }
 
                 if (_timer == 0)
