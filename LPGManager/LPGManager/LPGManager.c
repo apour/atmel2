@@ -4,13 +4,18 @@
  * Created: 4/4/2024 6:19:57 PM
  *  Author: Ales
  
- * Connection: CLK - PINB5, DIN - PINB3, DC - PINB0, RST - PINB1, CE - PINB2
+ * Connection Display: CLK - PINB5, DIN - PINB3, DC - PINB0, RST - PINB1, CE - PINB2
+ * Start impuls PINC0
+ * Relay PINC1-PINC6
  */ 
+
 #define DUMP_TO_UART
 #define TIMER2_CONST									256 - 183
 
 //#define __AVR_ATmega8__
 #define F_CPU 12000000UL // Clock Speed
+
+#define MOTOR_START_FRC_LO_LIMIT	80
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
@@ -21,25 +26,55 @@
 volatile unsigned int repeat_cnt2=0;
 // measure input signal
 volatile unsigned int measureFrc=0;
+volatile unsigned int lastMeasureFrc=0;
 
 volatile unsigned int timerCounter=0;
 char buffer[15];
+unsigned int temp;
 
 enum
 	{
 	mWaitForStart,
 	mStarting,
-	mRunning
+	mRunning,
+	mStopping
 	}	
 mMode;
+
+void checkMachineState()
+{
+	switch (mMode)
+	{
+		case mWaitForStart:
+			if (PINC&PINC0 == 1)
+			{
+				mMode = mWaitForStart;
+			}
+			break;
+		case mStarting:
+			if (lastMeasureFrc>MOTOR_START_FRC_LO_LIMIT)
+			{
+				mMode = mRunning;
+			}
+			break;
+		case mRunning:
+			if (lastMeasureFrc<MOTOR_START_FRC_LO_LIMIT)
+			{
+				mMode = mStopping;
+			}
+			break;
+		default:
+			break;
+	}	
+}
 
 static void hardwareInit(void)
 {
     PORTD = 0xfa;   /* 1111 1010 bin: activate pull-ups except on USB lines */
     DDRD = 0x02;    /* 0000 0010 bin: remove USB reset condition */
 	
-    // set PC0 and PC2 as output
-	DDRC = _BV(PC0) | _BV(PC2);
+    // set PC as output
+	DDRC = _BV(PC1) | _BV(PC2) | _BV(PC3) | _BV(PC4) | _BV(PC5);
 	PORTC = 0;
 	
 	// SET INT1 for input frequency
@@ -79,9 +114,16 @@ ISR (TIMER2_OVF_vect)
 	{
 	TCNT2 = TIMER2_CONST;
 	++repeat_cnt2;
+	if (repeat_cnt2 == 32 || repeat_cnt2 == 64)
+		{
+		checkMachineState();
+		}		
 	if (repeat_cnt2 == 64)	// 1s
 		{
 		repeat_cnt2 = 0;
+		temp = measureFrc;
+		measureFrc = 0;
+		checkMachineState(temp);
 		
 //#ifdef DUMP_TO_UART	  
 		//uartPutc(' ');
@@ -96,17 +138,20 @@ ISR (TIMER2_OVF_vect)
 		sprintf(buffer, "Cnt: %d", timerCounter);
 		LCD_gotoXY(0,1);
 		LCD_writeString_F(buffer);
-		uartPutc('A');
 		uartPutTxt(buffer);
 		uartPutTxt("\r\n");
 		
 		sprintf(buffer, "Mode: %d", mMode);
-		LCD_gotoXY(0,2);
+		LCD_gotoXY(0,3);
 		LCD_writeString_F(buffer);
 		//uartPutTxt(buffer);
 		//uartPutTxt("\r\n");
 		
-		//LCD_writeString_F("LCD Nokia Test");
+		sprintf(buffer, "Frc: %d  ", temp);
+		LCD_gotoXY(0,2);
+		LCD_writeString_F(buffer);
+		uartPutTxt(buffer);
+		uartPutTxt("\r\n");
 		}
 	}				
 		
@@ -135,6 +180,7 @@ int main(void)
     
 	while(1)
     {
+		
 		;    
     }
 
