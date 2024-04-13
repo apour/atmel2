@@ -5,7 +5,7 @@
  *  Author: Ales
  
  * Connection Display: CLK - PINB5, DIN - PINB3, DC - PINB0, RST - PINB1, CE - PINB2
- * Start impuls PINC0
+ * Start impuls PIND7
  * Relay PINC1-PINC6
  */ 
 
@@ -28,9 +28,15 @@ volatile unsigned int repeat_cnt2=0;
 volatile unsigned int measureFrc=0;
 volatile unsigned int lastMeasureFrc=0;
 
-volatile unsigned int timerCounter=0;
+// running time
+unsigned short runningTimeS=0;
+unsigned short runningTimeM=0;
+unsigned short runningTimeH=0;
+
 char buffer[15];
 unsigned int temp;
+unsigned short mask;
+unsigned short tempUInt8;
 
 enum
 	{
@@ -46,9 +52,12 @@ void checkMachineState()
 	switch (mMode)
 	{
 		case mWaitForStart:
-			if (PINC&PINC0 == 1)
+		    tempUInt8 = PIND;
+			mask = _BV(PD7);
+			tempUInt8=tempUInt8&mask;
+			if (tempUInt8 == mask)
 			{
-				mMode = mWaitForStart;
+				mMode = mStarting;
 			}
 			break;
 		case mStarting:
@@ -68,26 +77,44 @@ void checkMachineState()
 	}	
 }
 
+void increseRunningTime()
+{
+	runningTimeS++;
+	if (runningTimeS==60)
+	{
+		runningTimeS=0;
+		runningTimeM++;
+	}
+	if (runningTimeM==60)
+	{
+		runningTimeM=0;
+		runningTimeH++;
+	}
+}
+
+void resetRunningTime()
+{
+	runningTimeS=runningTimeM=runningTimeH=0;
+}
+
 static void hardwareInit(void)
 {
-    PORTD = 0xfa;   /* 1111 1010 bin: activate pull-ups except on USB lines */
-    DDRD = 0x02;    /* 0000 0010 bin: remove USB reset condition */
+    //PORTD = 0xfa;   /* 1111 1010 bin: activate pull-ups except on USB lines */
+    PORTD = 0x0;
+	DDRD = 0x02;    /* 0000 0010 bin: remove USB reset condition */
 	
     // set PC as output
-	DDRC = _BV(PC1) | _BV(PC2) | _BV(PC3) | _BV(PC4) | _BV(PC5);
 	PORTC = 0;
+	DDRC = _BV(PC1) | _BV(PC2) | _BV(PC3) | _BV(PC4) | _BV(PC5);
 	
 	// SET INT1 for input frequency
 	PORTD|= _BV(PD3);
-	
-	// set PC0 and PC2 as output
-	DDRC = _BV(PC0) | _BV(PC2);
-	PORTC = 0;
-	
+		
 	GICR |= _BV(INT1);	/* enable INT1 */
 	MCUCR|= _BV(ISC11);
 	MCUCR|= _BV(ISC01);
 
+	resetRunningTime();
 	sei();
 }
 
@@ -122,8 +149,8 @@ ISR (TIMER2_OVF_vect)
 		{
 		repeat_cnt2 = 0;
 		temp = measureFrc;
+		lastMeasureFrc = measureFrc;
 		measureFrc = 0;
-		checkMachineState(temp);
 		
 //#ifdef DUMP_TO_UART	  
 		//uartPutc(' ');
@@ -133,9 +160,12 @@ ISR (TIMER2_OVF_vect)
 		//uartPutc(' ');
 //#endif
 		//measureFrc = 0;
-
-		timerCounter++;
-		sprintf(buffer, "Cnt: %d", timerCounter);
+		if (mMode==mRunning)
+		{
+			increseRunningTime();
+		}
+		
+		sprintf(buffer, "Time:%03d:%02d:%02d", runningTimeH, runningTimeM, runningTimeS);
 		LCD_gotoXY(0,1);
 		LCD_writeString_F(buffer);
 		uartPutTxt(buffer);
