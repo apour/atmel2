@@ -28,7 +28,35 @@ This is basically just renaming everything to make it easy to work with
 #include <avr/io.h>
 #include <avr/delay.h>
 
-uint8_t readByte()
+uint16_t readData;
+uint8_t temp;
+
+uint16_t readUInt16()
+{
+	DDRB|= _BV(Shift_Clk_Pin) | _BV(LD_Pin);
+	DDRB&= ~_BV(Data_Pin); // Data_Pin for read
+	
+	uint16_t readData=0;
+	// Raise LD pin
+	LD_Clk_H;
+	for (uint16_t mask=1; mask!=0; mask<<=1)
+	{
+		if (CONTROL_PORT_IN&_BV(Data_Pin))
+		{
+			readData|=mask;
+		}
+				
+		// create serial clock
+		Shift_Clk_L;		
+		delay(1);
+		Shift_Clk_H;		
+	}
+	// Lower LD pin
+	LD_Clk_L;		
+	return readData;	
+}
+
+uint8_t readUInt8()
 {
 	DDRB|= _BV(Shift_Clk_Pin) | _BV(LD_Pin);
 	DDRB&= ~_BV(Data_Pin); // Data_Pin for read
@@ -59,8 +87,10 @@ int main(void)
 	DDRC = 0xFF;
 	while(1)
     {
-		uint8_t d = readByte();
-		PORTC = d;
+		readData = readUInt16();
+		//temp = (uint8_t) (readData>>8);
+		temp = (uint8_t) (readData&0xFF);
+		PORTC = temp;
 		delay(100);	
     }
 }
