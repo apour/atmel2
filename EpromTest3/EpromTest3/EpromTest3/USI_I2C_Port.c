@@ -1,37 +1,50 @@
 // url http://www.elektromys.eu/clanky/avr_twi/clanek.html
 // A - P?enos 1 byte Master >> Slave (kód pro master)
-#include <avr/io.h>
 #define F_CPU 12000000
+
+#include <avr/io.h>
 #include <util/delay.h>
 #include <util/twi.h>
 
-#define PORT_LED	PORTD
-#define DDR_LED   	DDRD
-#define P_LED_1		PD0			// used for init & data signal (for Debug)
-#define P_LED_2		PD1			// used for debug
-#define P_LED_3		PD2			// used for errors
+#define PORT_LED	PORTB
+#define DDR_LED   	DDRB
+#define P_LED_1		PB0			// used for init & data signal (for Debug)
+#define P_LED_2		PB1			// used for debug
+#define P_LED_3		PB2			// used for errors
 
 #define SLV1_ADDRESS 0xA0                      // adresy r?zných slave za?ízení na sb?rnici
 	
 #define TW_SEND_START TWCR = (1<<TWINT)|(1<<TWSTA)|(1<<TWEN)
 #define TW_SEND_STOP TWCR = (1<<TWINT)|(1<<TWEN)|(1<<TWSTO)
 #define TW_SEND_DATA TWCR = (1<<TWINT) | (1<<TWEN)
+#define TW_RECEIVE_DATA TWCR = (1<<TWINT) | (1<<TWEN)
 #define TW_WAIT while(!(TWCR & (1<<TWINT)))
 
 char i2c_posli_1B(char adresa, char data, char data2, char data3);
+char i2c_read_1B(char adresa, char data, char data2);
+void uartWriteUInt8(uint8_t v);
 char res=0;
 
 int main(void){
+  odDebugInit();
+		
+ //uartWriteUInt8(5);
+ _delay_ms(3000);
+ uartPutc('A');
+ //uartWriteUInt8(8);
+ 
  /* Initialize LED blinkers  */
  DDR_LED = _BV(P_LED_1) | _BV(P_LED_2) | _BV(P_LED_3);		      // enable output
 	
- TWSR|= (1<<TWPS0) | (1<<TWPS1);
- TWBR=32;                                  // žádná p?edd?li?ka, F_SCL = 8MHz/(16+2*TWBR) = 100kHz.
- TWCR = (1<<TWEN);                         // zapnout TWI modul	
- DDRB &=~((1<<DDB0) | (1<<DDB1));          // dv? tla?ítka
- PORTB = (1<<PORTB0) | (1<<PORTB1);        // pull-up pro tla?ítka
+ //TWSR|= (1<<TWPS0) | (1<<TWPS1);
+ //TWBR=32;                                  // žádná p?edd?li?ka, F_SCL = 8MHz/(16+2*TWBR) = 100kHz.
+ //TWCR = (1<<TWEN);                         // zapnout TWI modul	
+ //
+ 
  while(1){
-    res = i2c_posli_1B(SLV1_ADDRESS,0,1,0x55);            //pošli data=1 pro slave 1
+	 //uartPutc('A');
+    //res = i2c_posli_1B(SLV1_ADDRESS,0,1,0x8B);            //pošli data=1 pro slave 1
+	res = i2c_read_1B(SLV1_ADDRESS,0,1);
     if (res == 0)
 	{
 		blinkEm(1, P_LED_1);
@@ -39,8 +52,7 @@ int main(void){
 	else
 	{
 		blinkEm(1, P_LED_2);
-		blinkEm(res, P_LED_3);
-		
+		blinkEm(res, P_LED_3);	
 	}
 	_delay_ms(1000);
  }
@@ -75,6 +87,62 @@ char i2c_posli_1B(char adresa, char data, char data2, char data3){
  return 0;
 }
 
+char i2c_read_1B(char adresa, char data, char data2){                                   
+ TW_SEND_START;                             // vygenerovat START sekvenci
+	
+ TW_WAIT;                                   // po?kat na odezvu TWI
+ if ((TW_STATUS) != TW_START){ return 1;}   // pokud nebyl start vygenerován, máme error a kon?íme
+ TWDR = adresa;                             // nahrát adresu slave s p?íznakem zápisu (SLA+W)
+ TW_SEND_DATA;                              // odeslat adresu  
+	
+ TW_WAIT;                                   // po?kat na odezvu TWI
+ if ((TW_STATUS) != TW_MT_SLA_ACK){TW_SEND_STOP; return 2;} // Slave nám nedal potvrzení, p?ípadn? nastal jiný problém ? kon?íme komunikaci STOP sekvencí
+ TWDR = data;                               // nahrát data která chceme poslat do slave
+ TW_SEND_DATA;                              // odeslat data
+ 
+ TW_WAIT;                                   // po?kat na odezvu TWI
+ if ((TW_STATUS) != TW_MT_DATA_ACK){TW_SEND_STOP; return 2;} // Slave nám nedal potvrzení, p?ípadn? nastal jiný problém ? kon?íme komunikaci STOP sekvencí
+ TWDR = data2;                               // nahrát data která chceme poslat do slave
+ TW_SEND_DATA;                              // odeslat data
+	
+ TW_WAIT;                                   // po?kat na odezvu TWI
+ if ((TW_STATUS) != TW_MT_DATA_ACK){TW_SEND_STOP; return 2;} // Slave nám nedal potvrzení, p?ípadn? nastal jiný problém ? kon?íme komunikaci STOP sekvencí
+ 
+ TW_SEND_START;                             // vygenerovat START sekvenci
+ 
+ TW_WAIT;                                   // po?kat na odezvu TWI
+ if ((TW_STATUS) != TW_REP_START){return 3;}   // pokud nebyl start vygenerován, máme error a kon?íme
+ adresa|= 0x01;								// set last bit to force read
+ TWDR = adresa;                             // nahrát adresu slave s p?íznakem cteni (SLA+R)
+ TW_SEND_DATA;                              // odeslat adresu  
+ 
+  
+ TW_WAIT;                                   // po?kat na odezvu TWI
+ if ((TW_STATUS) != TW_MR_SLA_ACK)
+ {
+	uartPutc('1');
+	uartWriteUInt8(TW_STATUS);
+	TW_SEND_STOP; 
+	return 5; 	
+ }  
+
+ TW_RECEIVE_DATA;
+ TW_WAIT;
+ if ((TW_STATUS) != TW_MR_DATA_NACK)
+ {
+	 uartPutc('2');
+	uartWriteUInt8(TW_STATUS);
+	TW_SEND_STOP; 
+	return 5; 	
+ }  
+ 
+ char received = TWDR;
+ 
+ TW_SEND_STOP;                              // konec komunikace
+ uartWriteUInt8(received);
+ 
+ return 0;
+}
 
 /*------------------------------------------------------------------------
 **  blinkEm - function to blink LED for count passed in

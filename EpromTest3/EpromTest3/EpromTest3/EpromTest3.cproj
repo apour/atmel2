@@ -69,6 +69,12 @@
     </ToolchainSettings>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="uart.c">
+      <SubType>compile</SubType>
+    </Compile>
+    <Compile Include="uart.h">
+      <SubType>compile</SubType>
+    </Compile>
     <Compile Include="USI_I2C_Port.c">
       <SubType>compile</SubType>
     </Compile>
