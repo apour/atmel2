@@ -53,7 +53,7 @@ ISR (TIMER0_OVF_vect)
 			else
 				PORTB = 1;		
 		}	
-		//frequency = 0;
+		frequency = 0;
 	}	
 }
 
