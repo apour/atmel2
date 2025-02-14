@@ -39,15 +39,17 @@ void convertNumber(unsigned int number)
 	*p = '\0';
 }
 
-void enableInt1()
+void enableInt0()
 {
-	GICR |= _BV(INT1);	/* enable INT1 */
-	MCUCR|= _BV(ISC11);
-	MCUCR|= _BV(ISC01);
+	// enable external interrupt 0
+	DDRB &= ~_BV(2);
+	MCUCR |= _BV(ISC01);
+	MCUCR |= _BV(ISC00);
+	GIMSK  |= _BV(INT0);
 	sei();
 }
 
-SIGNAL(INT1_vect)
+SIGNAL(INT0_vect)
 	{
 	cli();
 	frequency++;
@@ -86,7 +88,7 @@ int main(void)
   // Nach der Initialisierung müssen auf dem LCD vorhandene schwarze Balken
   // verschwunden sein
   lcd_init();
-  enableInt1();
+  enableInt0();
   timer0Init();
 
   // Text in einzelnen Zeichen ausgeben
