@@ -18,15 +18,15 @@
 // Datenleitungen müssen auf aufeinanderfolgenden Pins liegen
  
 //  LCD DB4-DB7 <-->  PORTB Bit PD0-PD3
-#define LCD_PORT      PORTB
-#define LCD_DDR       DDRB
-#define LCD_DB        PB0
+#define LCD_PORT      PORTC
+#define LCD_DDR       DDRC
+#define LCD_DB        PC0
  
 //  LCD RS      <-->  PORTD Bit PB4     (RS: 1=Data, 0=Command)
-#define LCD_RS        PB4
+#define LCD_RS        PC4
  
 //  LCD EN      <-->  PORTD Bit PB5     (EN: 1-Impuls für Daten)
-#define LCD_EN        PB5
+#define LCD_EN        PC5
  
 ////////////////////////////////////////////////////////////////////////////////
 // LCD Ausführungszeiten (MS=Millisekunden, US=Mikrosekunden)
@@ -40,6 +40,7 @@
 #define LCD_SOFT_RESET_MS2      1
 #define LCD_SOFT_RESET_MS3      1
 #define LCD_SET_4BITMODE_MS     5
+	
  
 #define LCD_CLEAR_DISPLAY_MS    2
 #define LCD_CURSOR_HOME_MS      2

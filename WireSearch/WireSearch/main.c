@@ -3,8 +3,15 @@
 //    ATMega8 => MCU=atmega8 im makefile einstellen
 //    lcd-routines.c in SRC = ... Zeile anhängen
 // 
+// Show frequency in PD2 INT0 on lcd display on port C
+
+#ifndef F_CPU
+#define F_CPU 100000
+#endif
+
 #include <avr/io.h>
 #include <avr/interrupt.h>
+#include <avr/delay.h>
 #include "lcd.h"
 
 #define TIMER_CONST	256 - 244
@@ -72,11 +79,11 @@ ISR (TIMER0_OVF_vect)
 		repeated_cnt0 = 0;
 		unsigned int temp = frequency;
 		frequency = 0;
-		
-		lcd_setcursor( 0, 0 );
+				
 		convertNumber(temp);
 		// erneut Text ausgeben, aber diesmal komfortabler als String
-		lcd_string("Freq:");
+		lcd_setcursor( 1, 1 );
+		lcd_string("Freq: ");
 		lcd_string(displayBuffer);
 	}
 		
@@ -88,20 +95,13 @@ int main(void)
   // Nach der Initialisierung müssen auf dem LCD vorhandene schwarze Balken
   // verschwunden sein
   lcd_init();
+  
+  lcd_clear();
+  // Die Ausgabemarke in die 2te Zeile setzen
+  //lcd_setcursor( 0, 0 );
+ 
   enableInt0();
   timer0Init();
-
-  // Text in einzelnen Zeichen ausgeben
-  lcd_data( 'T' );
-  lcd_data( 'e' );
-  lcd_data( 's' );
-  //lcd_data( 't' );
-
-  // Die Ausgabemarke in die 2te Zeile setzen
-  lcd_setcursor( 0, 2 );
-
-  // erneut Text ausgeben, aber diesmal komfortabler als String
-  lcd_string("Ahojda AP!");
 
   while(1)
   {
