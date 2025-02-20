@@ -6,7 +6,7 @@
 // Show frequency in PD2 INT0 on lcd display on port C
 
 #ifndef F_CPU
-#define F_CPU 100000
+#define F_CPU 1000000
 #endif
 
 #include <avr/io.h>
@@ -14,7 +14,7 @@
 #include <avr/delay.h>
 #include "lcd.h"
 
-#define TIMER_CONST	256 - 244
+#define TIMER_CONST	256 - 242
 unsigned int repeated_cnt0 = 0;
 
 #define BUFFER_SIZE	6
