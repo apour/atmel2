@@ -6,7 +6,7 @@
 // Show frequency in PD2 INT0 on lcd display on port C
 
 #ifndef F_CPU
-#define F_CPU 100000
+#define F_CPU 16000000
 #endif
 
 #include <avr/io.h>
@@ -98,11 +98,14 @@ int main(void)
   
   lcd_clear();
   // Die Ausgabemarke in die 2te Zeile setzen
-  //lcd_setcursor( 0, 0 );
- 
+  lcd_setcursor( 0, 0 );
+  lcd_string("Freq: ");
+
+  _delay_us(1000);  
+  
   enableInt0();
   timer0Init();
-
+//
   while(1)
   {
   }
