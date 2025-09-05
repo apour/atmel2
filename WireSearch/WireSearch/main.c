@@ -6,21 +6,23 @@
 // Show frequency in PD2 INT0 on lcd display on port C
 
 #ifndef F_CPU
-#define F_CPU 1000000
+#define F_CPU 16000000
 #endif
 
 #include <avr/io.h>
 #include <avr/interrupt.h>
-#include <avr/delay.h>
+#include <util/delay.h>
 #include "lcd.h"
 
-#define TIMER_CONST	256 - 242
+#define TIMER_CONST	256 - 244
 unsigned int repeated_cnt0 = 0;
 
 #define BUFFER_SIZE	6
 char displayBuffer[BUFFER_SIZE];
 unsigned int dividers[] = {10000, 1000, 100, 10, 1, 0};
 unsigned int frequency = 0;
+unsigned int counter = 0x20;
+unsigned short needShowData=0;
 
 void convertNumber(unsigned int number)
 {
@@ -49,7 +51,6 @@ void convertNumber(unsigned int number)
 void enableInt0()
 {
 	// enable external interrupt 0
-	DDRB &= ~_BV(2);
 	MCUCR |= _BV(ISC01);
 	MCUCR |= _BV(ISC00);
 	GIMSK  |= _BV(INT0);
@@ -74,16 +75,19 @@ void timer0Init()
 ISR (TIMER0_OVF_vect)
 {
 	TCNT0 = TIMER_CONST;
-	if (++repeated_cnt0 == 4)
+	if (++repeated_cnt0 == 64)
 	{
 		repeated_cnt0 = 0;
 		unsigned int temp = frequency;
+		//unsigned int temp = counter;
 		frequency = 0;
-				
+		//counter++;
+
 		convertNumber(temp);
+
 		// erneut Text ausgeben, aber diesmal komfortabler als String
-		lcd_setcursor( 1, 1 );
-		lcd_string("Freq: ");
+		lcd_setcursor( 7, 1 );
+
 		lcd_string(displayBuffer);
 	}
 		
@@ -91,21 +95,28 @@ ISR (TIMER0_OVF_vect)
 
 int main(void)
 {
-  // Initialisierung des LCD
-  // Nach der Initialisierung müssen auf dem LCD vorhandene schwarze Balken
-  // verschwunden sein
-  lcd_init();
-  
-  lcd_clear();
-  // Die Ausgabemarke in die 2te Zeile setzen
-  //lcd_setcursor( 0, 0 );
- 
-  enableInt0();
-  timer0Init();
+	// Initialisierung des LCD
+	// Nach der Initialisierung müssen auf dem LCD vorhandene schwarze Balken
+	// verschwunden sein
+	lcd_init();
 
-  while(1)
-  {
-  }
+	lcd_clear();
+	// Die Ausgabemarke in die 2te Zeile setzen
+	lcd_setcursor( 1, 1 );
+	lcd_string("AP Test");
+	_delay_ms(2000);
 
-  return 0;
+	lcd_clear();
+	lcd_setcursor( 1, 1 );
+	lcd_string("Freq: ");
+	counter = 0;
+
+	enableInt0();
+	timer0Init();
+
+	while (1)	
+	{
+	}
+
+	return 0;
 }
