@@ -28,7 +28,7 @@ unsigned int curFrequencyHi = 0;
 unsigned int frequencyLo = 0;
 unsigned int frequencyHi = 0;
 unsigned short needShowData=0;
-unsigned short foundWire=1;
+unsigned short foundWire = 0;
 unsigned short idx;
 
 typedef struct
@@ -38,11 +38,12 @@ typedef struct
 } T_Limit_Item_Lo;
 
 #define LIMITS_HI_COUNT	3
-#define LIMITS_LO_COUNT 11
+#define LIMITS_LO_COUNT 14
 
-T_Limit_Item_Lo limits_lo[] = { {18164, 20076}, {9082, 10038}, {4541, 5019}, {2270, 2509},
-								{1135, 1254}, {1258, 1391}, {628, 695}, {314, 347}, {156, 173}, {78, 86}, {30, 43} };
-unsigned short limits_hi[] = { 4, 2, 1 };
+T_Limit_Item_Lo limits_lo[] = { {1720, 1790}, {16450, 16500}, {8210, 8250}, {19110, 19125}, {9552, 9566}, {4775, 4783}, 
+								{2386, 2394}, {1190, 1198}, {1321, 1328}, {659, 665}, {330, 334}, {162, 168}, {81, 85}, 
+								{39, 43} };
+unsigned short limits_hi[] = { 5, 2, 1 };
 	
 void convertNumber(unsigned int number, unsigned int* dividersBegin)
 {
@@ -97,26 +98,43 @@ void timer0Init()
 	sei();		
 }
 
-unsigned short findWireIdx()
+unsigned short findWireIdxByHiLimits()
 {
-	idx = 0;
-	while (idx<LIMITS_HI_COUNT)
+	unsigned short i = 0;
+	while (i<LIMITS_HI_COUNT)
 	{
-		if (limits_hi[idx] == frequencyHi)
-		{
-			return idx+1;
-		}			
-		idx++;
-	}
-	
-	idx = 0;
-	while (idx<LIMITS_LO_COUNT)
-	{
-		if (limits_lo[idx].loMin < frequencyLo && limits_lo[idx].loMax > frequencyLo)
-		    return idx+4;
-		idx++;
+		if (limits_hi[i] == frequencyHi)
+			return i+1;
+		i++;
 	}
 	return 0;
+}
+
+unsigned short findWireIdxByLoLimits(unsigned short from, unsigned short to)
+{
+	unsigned short i = from;
+	while (i<to)
+	{
+		if (limits_lo[i].loMin < frequencyLo && limits_lo[i].loMax > frequencyLo)
+		    return i+1;
+		i++;
+	}
+	return 0;
+}
+
+unsigned short findWireIdx()
+{
+	idx = findWireIdxByHiLimits();
+	if (idx>0 && idx<LIMITS_HI_COUNT+1)
+	{
+		idx = findWireIdxByLoLimits(0, LIMITS_HI_COUNT+1);
+		if (idx>0 && idx<LIMITS_HI_COUNT+1)
+		{
+			return idx;
+		}
+		return 0;
+	}
+	return findWireIdxByLoLimits(LIMITS_HI_COUNT, LIMITS_LO_COUNT);
 }
 
 ISR (TIMER0_OVF_vect)
@@ -135,6 +153,7 @@ ISR (TIMER0_OVF_vect)
 	}
 	
 	if (++repeated_cnt0 == 1024)
+	//if (++repeated_cnt0 == 1)
 	{
 		cli();
 		repeated_cnt0 = 0;
@@ -144,11 +163,14 @@ ISR (TIMER0_OVF_vect)
 		curFrequencyHi = 0;
 		sei();
 
-		convertNumber(frequencyLo, &dividers[0]);
-
-		// erneut Text ausgeben, aber diesmal komfortabler als String
+		convertNumber(frequencyHi, &dividers[3]);
 		lcd_setcursor( 7, 1 );
-
+		lcd_string(displayBuffer);
+		lcd_data(':');
+		
+		convertNumber(frequencyLo, &dividers[0]);
+		// erneut Text ausgeben, aber diesmal komfortabler als String
+		lcd_setcursor( 10, 1 );
 		lcd_string(displayBuffer);
 		
 		foundWire = findWireIdx();
@@ -171,13 +193,18 @@ int main(void)
 	lcd_clear();
 	// Die Ausgabemarke in die 2te Zeile setzen
 	lcd_setcursor( 1, 1 );
-	lcd_string("AP Test");
+	lcd_string(" Wire finder");
+	lcd_setcursor( 1, 2 );
+	lcd_string("by Ales Pour");
 	_delay_ms(2000);
 
 	lcd_clear();
 	lcd_setcursor( 1, 1 );
 	lcd_string("Freq: ");
 
+    lcd_setcursor( 1, 2 );
+	lcd_string("Wire: ");
+	
 	DDRC=0x20;
 	enableInt0();
 	timer0Init();
