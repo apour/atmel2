@@ -1,0 +1,6 @@
+
+avr-gcc -mmcu=atmega8 -Os -flto -ffunction-sections -fdata-sections \
+        -Wall -Wextra -DF_CPU=16000000UL -c main.c
+avr-gcc -mmcu=atmega8 -Os -flto -Wl,--gc-sections -o main.elf main.o
+avr-size -A main.elf
+avr-objcopy -O ihex -R .eeprom main.elf main.hex

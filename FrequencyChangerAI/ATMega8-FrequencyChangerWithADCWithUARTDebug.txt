@@ -1,0 +1,297 @@
+/*
+ * ATmega8 @ 16 MHz
+ * Frekvenční násobič/dělič s plynulým trimrem přes ADC a UART debugem.
+ *
+ * - Vstup:  PD6 / ICP1 (Timer1 Input Capture) – měření periody.
+ * - Výstup: PD7 / OC2  (Timer2 CTC + toggle) – obdélník.
+ * - Trimr:  ADC0 / PC0 → S ∈ [0.50, 1.50] (±50 %).
+ * - UART:   PD1 / TXD → USB‑UART (výchozí 115200 Bd, 8‑N‑1).
+ *
+ * Debug řádek (příklad):
+ *   fin=12345 Hz | S=1.200x | fout=14814 Hz | OCR2=97 | p2=32
+ */
+
+#ifndef F_CPU
+#define F_CPU 16000000UL
+#endif
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* ========================== User nastavení ========================== */
+/* --- Timer1 (měření) --- */
+#define T1_PRESC       8u
+#define T1_CS_BITS     (1<<CS11)
+
+/* --- Timer2 (generování) --- */
+typedef struct { uint16_t presc; uint8_t cs_bits; } t2_presc_t;
+static const t2_presc_t T2_PRESCALERS[] = {
+    {   1,  (1<<CS20)                            }, // 001
+    {   8,  (1<<CS21)                            }, // 010
+    {  32,  (1<<CS21) | (1<<CS20)               }, // 011
+    {  64,  (1<<CS22)                            }, // 100
+    { 128,  (1<<CS22) | (1<<CS20)               }, // 101
+    { 256,  (1<<CS22) | (1<<CS21)               }, // 110
+    {1024,  (1<<CS22) | (1<<CS21) | (1<<CS20)   }  // 111
+};
+#define T2_PRESC_COUNT  (sizeof(T2_PRESCALERS)/sizeof(T2_PRESCALERS[0]))
+#define OCR2_MIN  10u
+#define OCR2_MAX  250u
+
+/* --- ADC → scale (Q10) --- */
+#define SCALE_DEN         1024u
+#define SCALE_MIN_Q10     512u    // 0.50 × 1024
+#define SCALE_MAX_Q10     1536u   // 1.50 × 1024
+#define ADC_EMA_SHIFT     3       // 1/8 nová hodnota
+#define PERIOD_EMA_SHIFT  3       // 1/8 nová perioda
+
+/* --- UART nastavení --- */
+/* Pozn.: 115200 Bd @ 16 MHz s U2X=1 má chybu ~+2.1 %, obvykle OK pro debug.
+ * Pro téměř nulovou chybu můžeš dát např. 38400 Bd s U2X=0.
+ */
+#define UART_BAUD     115200UL
+#define UART_USE_U2X  1          // 1 = U2X (dělič 8), 0 = normál (dělič 16)
+
+/* Debug throttling – tiskni každý N-tý update, ať to nezahltí linku */
+#define DEBUG_PRINT_EVERY  10
+
+/* ========================== Stavové proměnné ========================== */
+static volatile uint32_t t1_ovf = 0;
+static volatile uint32_t last_capture = 0;
+static volatile uint32_t period_ticks = 0;
+static volatile bool     period_ready = false;
+
+static volatile uint16_t adc_filt = 0;
+static volatile bool     adc_updated = false;
+
+static volatile uint16_t scale_num = 1024;     // S = 1.00× po resetu
+static const    uint16_t scale_den = SCALE_DEN;
+
+/* Debug – poslední použité nastavení výstupu */
+static volatile uint8_t  g_dbg_ocr2 = 127;
+static volatile uint16_t g_dbg_p2   = 32;      // zvolený prescaler Timer2
+
+/* ========================== Pomocné funkce ========================== */
+static inline uint32_t ticks_diff(uint32_t now, uint32_t prev) { return (now - prev); }
+
+/* ----------------------------- UART ----------------------------- */
+static void uart_init(void) {
+#if UART_USE_U2X
+    UCSRA = (1<<U2X);                 // double speed
+    uint16_t ubrr = (uint16_t)(F_CPU / (8UL * UART_BAUD) - 1UL);
+#else
+    UCSRA = 0;
+    uint16_t ubrr = (uint16_t)(F_CPU / (16UL * UART_BAUD) - 1UL);
+#endif
+    /* UBRRH/UBRRL: pozor na ATmega8 – UBRRH sdílí adresu s UCSRC, URSEL=0! */
+    UBRRH = (uint8_t)(ubrr >> 8);
+    UBRRL = (uint8_t)(ubrr & 0xFF);
+
+    /* UCSRB: povolit TX (RX volitelně) */
+    UCSRB = (1<<TXEN); // | (1<<RXEN);
+
+    /* UCSRC: URSEL=1 musí být nastaven při zápisu do UCSRC na ATmega8 */
+    UCSRC = (1<<URSEL) | (1<<UCSZ1) | (1<<UCSZ0); // 8 data, 1 stop, no parity
+}
+static inline void uart_tx(uint8_t b) {
+    while (!(UCSRA & (1<<UDRE))) { /* wait */ }
+    UDR = b;
+}
+static void uart_print_str(const char* s) {
+    while (*s) uart_tx((uint8_t)*s++);
+}
+static void uart_print_u32(uint32_t v) {
+    char buf[11]; // max 4294967295
+    uint8_t i = 0;
+    if (v == 0) { uart_tx('0'); return; }
+    while (v > 0 && i < sizeof(buf)) {
+        buf[i++] = '0' + (v % 10u);
+        v /= 10u;
+    }
+    while (i--) uart_tx((uint8_t)buf[i]);
+}
+static void uart_print_u16(uint16_t v) { uart_print_u32(v); }
+static void uart_print_fixed_q10(uint16_t q10) {
+    /* Vypiš jako X.YYY (3 desetinná místa): round(q10*1000/1024) */
+    uint32_t m = (uint32_t)q10 * 1000u;
+    uint32_t x1000 = (m + 512u) >> 10; // ~ /1024
+    uint32_t intp  = x1000 / 1000u;
+    uint32_t frac  = x1000 % 1000u;
+    uart_print_u32(intp);
+    uart_tx('.');
+    uart_tx((uint8_t)('0' + (frac/100u)%10u));
+    uart_tx((uint8_t)('0' + (frac/10u)%10u));
+    uart_tx((uint8_t)('0' + (frac%10u)));
+}
+
+/* ----------------------------- ISR: Timer1 ----------------------------- */
+ISR(TIMER1_OVF_vect) { t1_ovf++; }
+
+ISR(TIMER1_CAPT_vect) {
+    uint32_t now = (t1_ovf << 16) | (uint16_t)ICR1;
+    uint32_t dt  = ticks_diff(now, last_capture);
+    last_capture = now;
+    if (dt > 0) {
+        static uint32_t ema = 0;
+        if (ema == 0) ema = dt;
+        else          ema += (int32_t)(dt - ema) >> PERIOD_EMA_SHIFT;
+        period_ticks = ema;
+        period_ready = true;
+    }
+}
+
+/* ----------------------------- ISR: ADC ----------------------------- */
+ISR(ADC_vect) {
+    uint16_t v = ADC;  // 10bit
+    static uint16_t aema = 0;
+    aema += (int16_t)(v - aema) >> ADC_EMA_SHIFT;
+    adc_filt = aema;
+    adc_updated = true;
+}
+
+/* ----------------------------- Init bloky ----------------------------- */
+static void timer1_input_init(void) {
+    DDRD &= ~(1<<DDD6);  // PD6 (ICP1) vstup
+    TCCR1A = 0;
+    TCCR1B = (1<<ICNC1) | (1<<ICES1) | T1_CS_BITS; // noise cancel, rising edge
+    TCCR1C = 0;
+    TIMSK |= (1<<TICIE1) | (1<<TOIE1);
+    TCNT1 = 0; t1_ovf = 0; last_capture = 0;
+}
+static void timer2_output_init(void) {
+    DDRD |= (1<<DDD7);   // PD7 (OC2) výstup
+    TCCR2 = (1<<WGM21) | (1<<COM20); // CTC + toggle OC2
+    OCR2  = 127;
+}
+static void adc_init(void) {
+    ADMUX  = (1<<REFS0); // AVcc ref, kanál ADC0
+    ADCSRA = (1<<ADEN) | (1<<ADATE) | (1<<ADIE) |
+             (1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0); // presc 128 → 125 kHz
+    SFIOR &= ~((1<<ADTS2)|(1<<ADTS1)|(1<<ADTS0));  // free-running
+    ADCSRA |= (1<<ADSC);
+}
+
+/* --------------------- Přepočet periody → OCR2 & prescaler --------------------- */
+/* OCR2 ≈ (T1_PRESC * period_ticks * SCALE_DEN) / (2 * p2 * scale_num) - 1 */
+static void t2_set_from_period(uint32_t pticks, uint16_t sc_num) {
+    if (pticks == 0 || sc_num == 0) return;
+
+    uint8_t  chosen_cs  = 0;
+    uint8_t  chosen_ocr = 127;
+    uint16_t chosen_p2  = 32;
+    bool ok = false;
+
+    for (uint8_t i = 0; i < T2_PRESC_COUNT; ++i) {
+        uint32_t p2 = T2_PRESCALERS[i].presc;
+        uint64_t num   = (uint64_t)T1_PRESC * (uint64_t)pticks * (uint64_t)SCALE_DEN;
+        uint32_t denom = (uint32_t)(2u * p2 * (uint32_t)sc_num);
+        uint32_t ocr_calc = (uint32_t)(num / denom);
+        if (ocr_calc > 0) ocr_calc -= 1;
+
+        if (ocr_calc >= OCR2_MIN && ocr_calc <= OCR2_MAX) {
+            chosen_cs  = T2_PRESCALERS[i].cs_bits;
+            chosen_ocr = (uint8_t)ocr_calc;
+            chosen_p2  = (uint16_t)p2;
+            ok = true; break;
+        }
+    }
+
+    if (!ok) {
+        // přiblížení k nejbližšímu možnému
+        uint32_t p2 = T2_PRESCALERS[0].presc;
+        uint64_t num   = (uint64_t)T1_PRESC * (uint64_t)pticks * (uint64_t)SCALE_DEN;
+        uint32_t denom = (uint32_t)(2u * p2 * (uint32_t)sc_num);
+        int32_t  ocr   = (int32_t)(num / denom) - 1;
+        if (ocr < (int32_t)OCR2_MIN) {
+            chosen_cs  = T2_PRESCALERS[0].cs_bits;
+            chosen_ocr = OCR2_MIN;
+            chosen_p2  = (uint16_t)p2;
+        } else {
+            uint8_t last = (uint8_t)(T2_PRESC_COUNT - 1);
+            p2 = T2_PRESCALERS[last].presc;
+            denom  = (uint32_t)(2u * p2 * (uint32_t)sc_num);
+            ocr    = (int32_t)(num / denom) - 1;
+            chosen_cs  = T2_PRESCALERS[last].cs_bits;
+            chosen_ocr = (ocr > (int32_t)OCR2_MAX) ? OCR2_MAX : (uint8_t)ocr;
+            chosen_p2  = (uint16_t)p2;
+        }
+    }
+
+    uint8_t base = (1<<WGM21) | (1<<COM20);
+    TCCR2 = base | chosen_cs;
+    OCR2  = chosen_ocr;
+
+    // pro debug
+    g_dbg_ocr2 = chosen_ocr;
+    g_dbg_p2   = chosen_p2;
+}
+
+/* --------- ADC mapování 0..1023 -> [0.50..1.50] v Q10 (lineárně) --------- */
+static inline uint16_t map_adc_to_scale_q10(uint16_t adc_10bit) {
+    uint32_t span = (uint32_t)(SCALE_MAX_Q10 - SCALE_MIN_Q10);
+    uint32_t tmp  = (span * adc_10bit + 511u) / 1023u; // zaokrouhlení
+    uint16_t out  = (uint16_t)(SCALE_MIN_Q10 + tmp);
+    if (out < SCALE_MIN_Q10) out = SCALE_MIN_Q10;
+    if (out > SCALE_MAX_Q10) out = SCALE_MAX_Q10;
+    return out;
+}
+
+/* =============================== MAIN =============================== */
+int main(void) {
+    timer1_input_init();
+    timer2_output_init();
+    adc_init();
+    uart_init();
+    sei();
+
+    // inicializace scale dle trimru
+    scale_num = map_adc_to_scale_q10(adc_filt);
+
+    uint16_t print_div = DEBUG_PRINT_EVERY;
+
+    while (1) {
+        bool do_update = false;
+        uint32_t p  = period_ticks;
+        uint16_t sn = scale_num;
+
+        if (period_ready) { period_ready = false; do_update = true; }
+        if (adc_updated) {
+            adc_updated = false;
+            uint16_t new_sn = map_adc_to_scale_q10(adc_filt);
+            if ((new_sn > sn ? (new_sn - sn) : (sn - new_sn)) >= 1) {
+                sn = new_sn; scale_num = sn; do_update = true;
+            }
+        }
+
+        if (do_update && p != 0 && sn != 0) {
+            t2_set_from_period(p, sn);
+
+            // Throttling debug výpisů
+            if (--print_div == 0) {
+                print_div = DEBUG_PRINT_EVERY;
+
+                // Spočti odhad fin a fout (celá čísla)
+                // fin = F_CPU / (T1_PRESC * p)
+                uint32_t fin = (uint32_t)(F_CPU / (uint32_t)(T1_PRESC)) / (p ? p : 1);
+
+                // fout = F_CPU / (2 * p2 * (1 + OCR2))
+                uint32_t denom = (uint32_t)2u * (uint32_t)g_dbg_p2 * (uint32_t)(1u + g_dbg_ocr2);
+                uint32_t fout  = (denom ? (uint32_t)(F_CPU / denom) : 0);
+
+                uart_print_str("fin=");
+                uart_print_u32(fin);
+                uart_print_str(" Hz | S=");
+                uart_print_fixed_q10(sn);
+                uart_print_str("x | fout=");
+                uart_print_u32(fout);
+                uart_print_str(" Hz | OCR2=");
+                uart_print_u16(g_dbg_ocr2);
+                uart_print_str(" | p2=");
+                uart_print_u16(g_dbg_p2);
+                uart_print_str("\r\n");
+            }
+        }
+    }
+}

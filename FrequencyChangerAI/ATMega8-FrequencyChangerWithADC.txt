@@ -1,0 +1,253 @@
+/*
+ * ATmega8 @ 16 MHz
+ * Frekvenční "násobič/dělící" s plynulým trimrem přes ADC:
+ *  - Vstupní signál: PD6 / ICP1 (Timer1 Input Capture) – měření periody.
+ *  - Výstup:        PD7 / OC2 (Timer2 CTC + toggle) – generuje obdélník.
+ *  - Násobek S:     čten z ADC0 (PC0) trimrem; S ∈ [SCALE_MIN, SCALE_MAX].
+ *
+ * Vzorec (CTC+toggle):
+ *   f_out = F_CPU / (2 * p2 * (1 + OCR2))
+ * a chceme
+ *   f_out = S * f_in,  f_in = F_CPU / (p1 * period_ticks)
+ * => OCR2 ≈ (p1 * period_ticks * (1/S)) / (2 * p2) - 1
+ *
+ * Implementováno celé-čísly:
+ *   S ≈ scale_num / scale_den, s scale_den = 1024 (Q10)
+ *   OCR2 ≈ (p1 * period_ticks * scale_den) / (2 * p2 * scale_num) - 1
+ */
+
+#ifndef F_CPU
+#define F_CPU 16000000UL
+#endif
+
+#include <avr/io.h>
+#include <avr/interrupt.h>
+#include <stdint.h>
+#include <stdbool.h>
+
+/* -------------------------- Parametry měření (Timer1) -------------------------- */
+#define T1_PRESC       8u          // prescaler Timer1 = 8 → 1 tik = 0,5 µs @ 16 MHz
+#define T1_CS_BITS     (1<<CS11)   // CS11=1
+
+/* --------------------- Parametry generování (Timer2/OC2) ----------------------- */
+typedef struct {
+    uint16_t presc;
+    uint8_t  cs_bits;  // CS22..CS20 pattern
+} t2_presc_t;
+
+static const t2_presc_t T2_PRESCALERS[] = {
+    {   1,  (1<<CS20)                            }, // 001
+    {   8,  (1<<CS21)                            }, // 010
+    {  32,  (1<<CS21) | (1<<CS20)               }, // 011
+    {  64,  (1<<CS22)                            }, // 100
+    { 128,  (1<<CS22) | (1<<CS20)               }, // 101
+    { 256,  (1<<CS22) | (1<<CS21)               }, // 110
+    {1024,  (1<<CS22) | (1<<CS21) | (1<<CS20)   }  // 111
+};
+#define T2_PRESC_COUNT  (sizeof(T2_PRESCALERS)/sizeof(T2_PRESCALERS[0]))
+
+#define OCR2_MIN  10u
+#define OCR2_MAX  250u
+
+/* ------------------------- ADC → scale (Q10) nastavení ------------------------- */
+/* S = scale_num / scale_den;   scale_den = 1024 (Q10)
+ * Default: −20 % … +20 %  →  S ∈ [0.80, 1.20]
+ * Lze libovolně změnit – například pro ±10 % dej 0.90 a 1.10.
+ */
+#define SCALE_DEN         1024u
+#define SCALE_MIN_Q10     819u   // round(0.80 * 1024)
+#define SCALE_MAX_Q10     1229u  // round(1.20 * 1024)
+#define ADC_EMA_SHIFT     3      // vyhlazení ADC (1/8 nová hodnota)
+
+/* -------------------------- EMA vyhlazení periody ------------------------------ */
+#define PERIOD_EMA_SHIFT  3      // 1/8 nová perioda → stabilní výstup
+
+/* ------------------------------- Stavové proměnné ------------------------------ */
+static volatile uint32_t t1_ovf = 0;           // overflow counter (Timer1)
+static volatile uint32_t last_capture = 0;     // timestamp předchozí hrany
+static volatile uint32_t period_ticks = 0;     // (EMA) perioda v tikech Timer1 (32b)
+static volatile bool     period_ready = false;
+
+static volatile uint16_t adc_filt = 0;         // EMA ADC (0..1023)
+static volatile bool     adc_updated = false;  // signalizace změny
+
+/* Aktuální scale S (Q10): scale_num / SCALE_DEN */
+static volatile uint16_t scale_num = 1229;     // default 1.20× po resetu
+static const    uint16_t scale_den = SCALE_DEN;
+
+/* -------------------------- Pomocné (časový rozdíl) ---------------------------- */
+static inline uint32_t ticks_diff(uint32_t now, uint32_t prev) {
+    return (now - prev); // unsigned wrap-safe
+}
+
+/* ----------------------------- Timer1 ISRs ------------------------------------- */
+ISR(TIMER1_OVF_vect) {
+    t1_ovf++;
+}
+
+ISR(TIMER1_CAPT_vect) {
+    uint32_t now = (t1_ovf << 16) | (uint16_t)ICR1;
+    uint32_t dt  = ticks_diff(now, last_capture);
+    last_capture = now;
+
+    if (dt > 0) {
+        static uint32_t ema = 0;
+        if (ema == 0) {
+            ema = dt;
+        } else {
+            ema += (int32_t)(dt - ema) >> PERIOD_EMA_SHIFT;
+        }
+        period_ticks = ema;
+        period_ready = true;
+    }
+}
+
+/* ---------------------------- ADC – čtení trimru ------------------------------ */
+/* ADC0 (PC0), ref = AVcc, prescaler 128 → 125 kHz ADC clock @ 16 MHz.
+ * Free-running režim + ISR s EMA filtrem.
+ */
+ISR(ADC_vect) {
+    uint16_t v = ADC;  // 10bit (ADCL pak ADCH čteno automaticky přes "ADC" makro)
+    static uint16_t aema = 0;
+    aema += (int16_t)(v - aema) >> ADC_EMA_SHIFT;
+    adc_filt = aema;
+    adc_updated = true;
+}
+
+/* ------------------------------- Inicializace ---------------------------------- */
+static void timer1_input_init(void) {
+    DDRD &= ~(1<<DDD6);             // PD6 (ICP1) vstup
+    TCCR1A = 0;
+    TCCR1B = (1<<ICNC1) | (1<<ICES1) | T1_CS_BITS; // noise canceler, rising edge, presc=8
+    TCCR1C = 0;
+    TIMSK |= (1<<TICIE1) | (1<<TOIE1);            // povolit capture + overflow
+    TCNT1 = 0;
+    t1_ovf = 0;
+    last_capture = 0;
+}
+
+static void timer2_output_init(void) {
+    DDRD |= (1<<DDD7);              // PD7 (OC2) výstup
+    // CTC (WGM21), toggle OC2 (COM20). Prescaler (CS22..20) nastavíme dynamicky.
+    TCCR2 = (1<<WGM21) | (1<<COM20);
+    OCR2  = 127;
+}
+
+static void adc_init(void) {
+    /* Referenční napětí AVcc (REFS0=1), kanál ADC0 (MUX=0000) */
+    ADMUX = (1<<REFS0);
+    /* Povolit ADC, auto-trigger, přerušení, prescaler 128 → 125 kHz
+       Free-running (ADTS=000 v SFIOR) */
+    ADCSRA = (1<<ADEN) | (1<<ADATE) | (1<<ADIE) |
+             (1<<ADPS2) | (1<<ADPS1) | (1<<ADPS0);
+    SFIOR &= ~((1<<ADTS2)|(1<<ADTS1)|(1<<ADTS0));
+    /* Start */
+    ADCSRA |= (1<<ADSC);
+}
+
+/* --------------------- Přepočet periody → OCR2 & prescaler --------------------- */
+/* OCR2 ≈ (T1_PRESC * period_ticks * scale_den) / (2 * p2 * scale_num) - 1 */
+static void t2_set_from_period(uint32_t pticks, uint16_t sc_num) {
+    if (pticks == 0 || sc_num == 0) return;
+
+    uint8_t chosen_cs = 0;
+    uint8_t chosen_ocr = 127;
+    bool ok = false;
+
+    for (uint8_t i = 0; i < T2_PRESC_COUNT; ++i) {
+        uint32_t p2 = T2_PRESCALERS[i].presc;
+
+        uint64_t num   = (uint64_t)T1_PRESC * (uint64_t)pticks * (uint64_t)scale_den;
+        uint32_t denom = (uint32_t)(2u * p2 * (uint32_t)sc_num);
+
+        uint32_t ocr_calc = (uint32_t)(num / denom);
+        if (ocr_calc > 0) { ocr_calc -= 1; }
+
+        if (ocr_calc >= OCR2_MIN && ocr_calc <= OCR2_MAX) {
+            chosen_cs  = T2_PRESCALERS[i].cs_bits;
+            chosen_ocr = (uint8_t)ocr_calc;
+            ok = true;
+            break;
+        }
+    }
+
+    if (!ok) {
+        /* „Záchranný“ režim: ukaž nejbližší dosažitelné nastavení. */
+        // Zkus nejmenší prescaler (nejvyšší f_out)
+        {
+            uint32_t p2 = T2_PRESCALERS[0].presc;
+            uint64_t num   = (uint64_t)T1_PRESC * (uint64_t)pticks * (uint64_t)scale_den;
+            uint32_t denom = (uint32_t)(2u * p2 * (uint32_t)sc_num);
+            int32_t  ocr   = (int32_t)(num / denom) - 1;
+            if (ocr < (int32_t)OCR2_MIN) {
+                chosen_cs  = T2_PRESCALERS[0].cs_bits;
+                chosen_ocr = OCR2_MIN;
+            } else {
+                // Zkus největší prescaler (nejnižší f_out)
+                uint8_t last = (uint8_t)(T2_PRESC_COUNT - 1);
+                p2 = T2_PRESCALERS[last].presc;
+                denom  = (uint32_t)(2u * p2 * (uint32_t)sc_num);
+                ocr    = (int32_t)(num / denom) - 1;
+                chosen_cs  = T2_PRESCALERS[last].cs_bits;
+                if (ocr > (int32_t)OCR2_MAX) chosen_ocr = OCR2_MAX;
+                else                         chosen_ocr = (uint8_t)ocr;
+            }
+        }
+    }
+
+    /* Aplikace na Timer2 (ponech WGM21|COM20) */
+    uint8_t base = (1<<WGM21) | (1<<COM20);
+    TCCR2 = base | chosen_cs;
+    OCR2  = chosen_ocr;
+}
+
+/* --------- Přepočet ADC → scale_num (Q10). Lineární map 0..1023 -> [min..max] -- */
+static inline uint16_t map_adc_to_scale_q10(uint16_t adc_q10bit) {
+    // scale_num = SCALE_MIN_Q10 + (adc / 1023) * (SCALE_MAX_Q10 - SCALE_MIN_Q10)
+    uint32_t span = (uint32_t)(SCALE_MAX_Q10 - SCALE_MIN_Q10);
+    uint32_t tmp  = (span * adc_q10bit + 511u) / 1023u; // s jednoduchým zaokrouhlením
+    uint16_t out  = (uint16_t)(SCALE_MIN_Q10 + tmp);
+
+    // Ochrana (teoreticky zbytečné)
+    if (out < SCALE_MIN_Q10) out = SCALE_MIN_Q10;
+    if (out > SCALE_MAX_Q10) out = SCALE_MAX_Q10;
+    return out;
+}
+
+/* ------------------------------------ MAIN ------------------------------------- */
+int main(void) {
+    timer1_input_init();
+    timer2_output_init();
+    adc_init();
+    sei();
+
+    // Při startu nastav scale_num podle aktuální polohy trimru:
+    scale_num = map_adc_to_scale_q10(adc_filt);
+
+    while (1) {
+        bool do_update = false;
+        uint32_t p = period_ticks;      // kopie, aby nás ISR nepřekvapila uprostřed výpočtu
+        uint16_t sn = scale_num;
+
+        if (period_ready) {
+            period_ready = false;
+            do_update = true;
+        }
+        if (adc_updated) {
+            adc_updated = false;
+            // Změna scale jen pokud posun > cca 1 LSB v Q10 (volitelná hystereze)
+            uint16_t new_sn = map_adc_to_scale_q10(adc_filt);
+            if ( (new_sn > sn ? (new_sn - sn) : (sn - new_sn)) >= 1 ) {
+                sn = new_sn;
+                scale_num = sn;
+                do_update = true;
+            }
+        }
+
+        if (do_update && p != 0 && sn != 0) {
+            t2_set_from_period(p, sn);
+        }
+        // ... případně další logika
+    }
+}
+``
