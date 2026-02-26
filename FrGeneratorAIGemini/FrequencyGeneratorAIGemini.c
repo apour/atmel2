@@ -1,38 +1,69 @@
+#define F_CPU 10000000UL
+
 #include <avr/io.h>
 #include <avr/delay.h>
 #include <avr/interrupt.h>
 
+
 volatile uint16_t last_capture = 0;
 volatile uint16_t period_ticks = 0;
 
-volatile uint32_t timer_overflows = 0;
+//volatile uint32_t timer_overflows = 0;
+volatile uint8_t timer_overflows = 0;
 volatile uint32_t final_time = 0;
 volatile uint8_t edge_count = 0;
+volatile uint8_t inMeasureCalculate = 0;
+volatile uint8_t overlowMeasure = 0;
 
 // Přerušení při přetečení 8-bitového časovače
 ISR(TIMER0_OVF_vect) {
+    if (inMeasureCalculate==1)
+        return;
     timer_overflows++;
+    if (timer_overflows == 0xFF) {
+        overlowMeasure = 1;
+        timer_overflows = 0;
+    }
+    //uart_send_char('O');
 }
 
 // Přerušení na INT0 (PD2) - měření vstupní frekvence
 ISR(INT0_vect) {
+    inMeasureCalculate = 1;
     if (edge_count == 0) {
         // První hrana - start měření
+        
         TCNT0 = 0;
         timer_overflows = 0;
         edge_count = 1;
+        overlowMeasure = 0;
+        uart_send_char('S');        
     } else {
         // Druhá hrana - konec měření
-        uint8_t timer_val = TCNT0;
+        uint8_t timer_val = TCNT0;        
         // Celkový počet tiků = (počet přetečení * 256) + aktuální hodnota
         final_time = (timer_overflows << 8) + timer_val;
         edge_count = 0; 
     
-		OCR1AH = timer_overflows;
-		OCR1AL = timer_val;
-		timer_overflows = 0;    
+		// OCR1AH = timer_overflows;
+		// OCR1AL = timer_val;
+		
+        //uart_send_char('E');    
+        uart_send_char('T');    
+        uart_send_char(':');
+        //uart_send_hex((final_time >> 8) & 0xFF); // vyšší byte
+        uart_send_hex(timer_overflows & 0xFF);        // nižší byte
+        uart_send_hex(timer_val & 0xFF);        // nižší byte        
+        if (overlowMeasure == 1) {
+            uart_send_char(' '); // indikace přetečení
+            uart_send_char('O'); // indikace přetečení
+        }
+        uart_send_char('\r');
+        uart_send_char('\n');
         // Zde můžete s final_time dále pracovat (např. poslat po UARTu)
+        timer_overflows = 0;
     }
+    inMeasureCalculate = 0;
 }
 
 void main(void) {
@@ -42,7 +73,7 @@ void main(void) {
     // 2. Nastavení OCR1A registru (horní mez pro porovnání)
     // Příklad: Pro 1kHz při 8MHz hodinách a preskaleru 8:
     // OCR1A = (8 000 000 / (2 * 8 * 1000)) - 1 = 499
-    OCR1A = 1499;
+    OCR1A = 1;
 
     // 3. Konfigurace TCCR1A
     // COM1A0: Přepne (toggle) pin OC1A při každé shodě (Match)
@@ -51,7 +82,9 @@ void main(void) {
     // 4. Konfigurace TCCR1B
     // WGM12: Zapne režim CTC (Clear Timer on Compare Match)
     // CS11: Nastaví preskaler na 8
-    TCCR1B = (1 << WGM12) | (1 << CS11);
+    //TCCR1B = (1 << WGM12) | (1 << CS11);
+    // prescaler 1024
+    TCCR1B = (1 << WGM12) | (1 << CS12) | (1 << CS10);
 
     // Nastavení INT0 na náběžnou hranu
     MCUCR |= (1 << ISC01) | (1 << ISC00);
@@ -62,10 +95,13 @@ void main(void) {
     TCCR0 |= (1 << CS01); 
     TIMSK |= (1 << TOIE0); // Povolení přerušení při přetečení Timer0
 	
+    timer_overflows = 0;
+    uart_init();
 	sei();
 	
     while (1) {
         // Zde můžete měnit OCR1A pro změnu střídy
-		_delay_ms(10);
+		_delay_ms(500);
+        
     }
 }
