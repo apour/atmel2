@@ -44,12 +44,18 @@ ISR(INT0_vect) {
     } else {
         // Druhá hrana - konec měření
         uint8_t timer_val = TCNT0;        
-        // Celkový počet tiků = (počet přetečení * 256) + aktuální hodnota
+        
+        // works ok from 39 Hz
         final_time = (timer_overflows << 8) + timer_val;
         final_time/= 2; // protože měříme periodu, ne frekvenci, vynásobíme 2
-
+        
+        // final_time = (timer_overflows << 8) + timer_val;
+        // final_time/= 2;
+        // final_time/= 8; // protože měříme periodu, ne frekvenci, vynásobíme 2
+        
         edge_count = 0; 
     
+
 		OCR1AH = final_time >> 8; // vyšší byte
 		OCR1AL = final_time & 0xFF; // nižší byte
 		
@@ -84,8 +90,11 @@ void main(void) {
     //TCCR1B = (1 << WGM12) | (1 << CS11);
     // prescaler 1024
     //TCCR1B = (1 << WGM12) | (1 << CS12) | (1 << CS10);
+    
+    // prescaler 64
+    TCCR1B = (1 << WGM12) | (1 << CS11) | (1 << CS10);
     // prescaler 8
-    TCCR1B = (1 << WGM12) | (1 << CS11);
+    //TCCR1B = (1 << WGM12) | (1 << CS11);
 
     // Nastavení INT0 na náběžnou hranu
     MCUCR |= (1 << ISC01) | (1 << ISC00);
@@ -93,7 +102,9 @@ void main(void) {
 
     // Nastavení Timer0: Prescaler 8 (příklad)
     // CS01=1 -> frekvence časovače = F_CPU / 8
-    TCCR0 |= (1 << CS01); 
+    //TCCR0 |= (1 << CS01); 
+    // CS01=1 | CS11=1 -> frekvence časovače = F_CPU / 64
+    TCCR0 |= (1 << CS01) | (1 << CS00); 
     TIMSK |= (1 << TOIE0); // Povolení přerušení při přetečení Timer0
 	
     timer_overflows = 0;
