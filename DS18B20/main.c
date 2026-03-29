@@ -104,20 +104,21 @@ int16_t ds18b20_read_temp() {
 // =======================
 // MAIN
 // =======================
-int main(void) {
-    char buffer[32];
-    int16_t t = 25;
+int main(void) {        
     uart_init();
-
-    uart_send_char('S');
+    
     uart_sendString("Start...\r\n");
 
     while (1) {
-        t = ds18b20_read_temp();                
+        int16_t t = ds18b20_read_temp();                
         uint8_t whole = t / 10;
-        uint8_t dec   = t % 10;        
-        snprintf(buffer, sizeof(buffer), "Temp: %u.%u\r\n", whole, dec);
-        uart_sendString(buffer);
+        uint8_t dec   = t % 10;     
+        uart_sendString("Temp: ");           
+        uart_send_dec(whole, 0);    
+        uart_send_char('.');
+        uart_send_dec(dec, 0);
+        uart_sendString(" C\r\n");    
+
         _delay_ms(1000);
     }
 }

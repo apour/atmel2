@@ -41,10 +41,9 @@ void uart_sendString(char *s)
     };
 }
 
-void  uart_send_hex(unsigned char ch)
+void uart_send_hex(unsigned char ch)
 {
-    unsigned char i,temp;
-     
+    unsigned char i,temp;     
     for (i=0; i<2; i++)
     {
         temp = (ch & 0xF0)>>4;
@@ -55,4 +54,18 @@ void  uart_send_hex(unsigned char ch)
         ch = ch << 4;    
      }   
 }
+
+
+void uart_send_dec(uint8_t value, uint8_t paddingZeros) {
+    unsigned char hundreds = value / 100;
+    if (hundreds > 0 || paddingZeros == 1)
+        uart_send_char('0' + hundreds);
+    value %= 100;
+    unsigned char tens = value / 10;
+    if (tens > 0 || hundreds > 0 || paddingZeros == 1)
+        uart_send_char('0' + tens);
+    unsigned char ones = value % 10;    
+    uart_send_char('0' + ones);
+}
+
 
