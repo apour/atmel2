@@ -3,31 +3,7 @@
 #include <avr/io.h>
 #include <util/delay.h>
 #include <stdio.h>
-
-// =======================
-// UART
-// =======================
-#define BAUD 9600
-#define MY_UBRR F_CPU/16/BAUD-1
-
-void UART_Init(unsigned int ubrr) {
-    // Set baud rate
-    UBRRH = (unsigned char)(ubrr >> 8);
-    UBRRL = (unsigned char)ubrr;
-    // Enable receiver and transmitter
-    UCSRB = (1 << RXEN) | (1 << TXEN);
-    // Set frame format: 8 data bits, 1 stop bit
-    UCSRC = (1 << URSEL) | (3 << UCSZ0);
-}
-
-void uart_send_char(char c) {
-    while (!(UCSRA & (1 << UDRE)));
-    UDR = c;
-}
-
-void uart_send_string(const char* s) {
-    while (*s) uart_send_char(*s++);
-}
+#include "uart.h"
 
 // =======================
 // ONE-WIRE (DS18B20)
@@ -131,17 +107,17 @@ int16_t ds18b20_read_temp() {
 int main(void) {
     char buffer[32];
     int16_t t = 25;
-    UART_Init(MY_UBRR);
+    uart_init();
 
-    uart_send_string("Start...\r\n");
+    uart_send_char('S');
+    uart_sendString("Start...\r\n");
 
     while (1) {
         t = ds18b20_read_temp();                
         uint8_t whole = t / 10;
-        uint8_t dec   = t % 10;
-
+        uint8_t dec   = t % 10;        
         snprintf(buffer, sizeof(buffer), "Temp: %u.%u\r\n", whole, dec);
-        uart_send_string(buffer);
+        uart_sendString(buffer);
         _delay_ms(1000);
     }
 }
