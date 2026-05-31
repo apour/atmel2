@@ -11,7 +11,7 @@
 
 // Mapování segmentů (abcdefg + DP)
 // Upravit podle typu displeje (common cathode/anode)
-uint8_t digits[10] = {
+uint8_t digits[11] = {
     0b00111111, // 0
     0b00000110, // 1
     0b01011011, // 2
@@ -21,7 +21,8 @@ uint8_t digits[10] = {
     0b01111101, // 6
     0b00000111, // 7
     0b01111111, // 8
-    0b01101111  // 9
+    0b01101111, // 9
+    0b10000000  // .
 };
 
 // Odeslání 1 bytu do 74LS595
@@ -40,6 +41,18 @@ void shiftOut(uint8_t data) {
         _delay_ms(1); // krátká prodleva pro stabilitu
         PORTB &= ~(1 << SCK);
     }
+}
+
+void numberOut(uint8_t data) {
+    if (data>99) {
+        shiftOut(~digits[10]);
+        shiftOut(~digits[10]);
+        return;
+    }
+    uint8_t t = data%10;
+    shiftOut(~digits[t]);
+    t = data/10;
+    shiftOut(~digits[t]);
 }
 
 // Resetování 74LS595
@@ -66,8 +79,10 @@ int main(void) {
 
      while (1) {
      
-        for (uint8_t i = 0; i < 10; i++) {
-            shiftOut(~digits[i]);
+        for (uint8_t i = 0; i < 100; i++) {
+            numberOut(i);
+            //shiftOut(~digits[i]);
+            //shiftOut(~digits[i]);
             latch();
             _delay_ms(5000);
         }
